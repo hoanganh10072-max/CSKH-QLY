@@ -38,6 +38,7 @@ services:
     startCommand: npm exec -w @cskh/web -- next start -p $PORT
     domains:
       - trungtamgiasuskv.cloud
+      - www.trungtamgiasuskv.cloud
     envVars:
       - key: NEXT_PUBLIC_API_URL
         value: https://api.trungtamgiasuskv.cloud
