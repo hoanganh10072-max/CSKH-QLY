@@ -5,9 +5,10 @@ services:
     plan: free
     rootDir: .
     buildCommand: npm install && npm run prisma:generate -w @cskh/api && npm run build -w @cskh/api
-    preDeployCommand: npx prisma migrate deploy --schema apps/api/prisma/schema.prisma && npm run seed:admin -w @cskh/api
-    startCommand: npm run start -w @cskh/api
+    startCommand: npx prisma migrate deploy --schema apps/api/prisma/schema.prisma && npm run seed:admin -w @cskh/api && npm run start -w @cskh/api
     healthCheckPath: /health
+    domains:
+      - api.trungtamgiasuskv.cloud
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -22,7 +23,7 @@ services:
       - key: JWT_EXPIRES_IN
         value: 7d
       - key: CLIENT_ORIGIN
-        value: https://mscilabs-web.onrender.com
+        value: https://trungtamgiasuskv.cloud,https://www.trungtamgiasuskv.cloud,https://mscilabs-web.onrender.com
       - key: SUPABASE_STORAGE_ENABLED
         value: false
       - key: SUPABASE_CALL_IMAGES_BUCKET
@@ -35,9 +36,11 @@ services:
     rootDir: .
     buildCommand: npm install && npm run build -w @cskh/web
     startCommand: npm exec -w @cskh/web -- next start -p $PORT
+    domains:
+      - trungtamgiasuskv.cloud
     envVars:
       - key: NEXT_PUBLIC_API_URL
-        value: https://mscilabs-api.onrender.com
+        value: https://api.trungtamgiasuskv.cloud
 
 databases:
   - name: mscilabs-postgres

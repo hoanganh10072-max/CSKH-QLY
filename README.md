@@ -103,23 +103,25 @@ Trên Render, tạo Blueprint từ repo GitHub này. Render sẽ đọc `render.
 
 Các URL tạm sau khi tạo:
 
-- Web: `https://mscilabs-web.onrender.com`
-- API: `https://mscilabs-api.onrender.com`
+- Web tạm: `https://mscilabs-web.onrender.com`
+- API tạm: `https://mscilabs-api.onrender.com`
+- Web domain thật: `https://trungtamgiasuskv.cloud`
+- API domain thật: `https://api.trungtamgiasuskv.cloud`
 
 Khi gắn tên miền riêng:
 
-1. Gắn domain chính vào service `mscilabs-web`, ví dụ `your-domain.com` và `www.your-domain.com`.
-2. Gắn subdomain API vào service `mscilabs-api`, ví dụ `api.your-domain.com`.
+1. Gắn domain chính vào service `mscilabs-web`: `trungtamgiasuskv.cloud`.
+2. Gắn subdomain API vào service `mscilabs-api`: `api.trungtamgiasuskv.cloud`.
 3. Cập nhật env của `mscilabs-api`:
 
 ```env
-CLIENT_ORIGIN="https://your-domain.com,https://www.your-domain.com,https://mscilabs-web.onrender.com"
+CLIENT_ORIGIN="https://trungtamgiasuskv.cloud,https://www.trungtamgiasuskv.cloud,https://mscilabs-web.onrender.com"
 ```
 
 4. Cập nhật env của `mscilabs-web`:
 
 ```env
-NEXT_PUBLIC_API_URL="https://api.your-domain.com"
+NEXT_PUBLIC_API_URL="https://api.trungtamgiasuskv.cloud"
 ```
 
 5. Redeploy lại web và API sau khi đổi env.
