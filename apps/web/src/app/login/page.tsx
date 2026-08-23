@@ -17,8 +17,8 @@ type LoginResponse = {
 
 export default function LoginPage() {
   const router = useRouter();
-  const [account, setAccount] = useState("admin");
-  const [password, setPassword] = useState("1007");
+  const [account, setAccount] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -43,7 +43,7 @@ export default function LoginPage() {
 
   return (
     <main className="relative grid min-h-screen place-items-center overflow-hidden bg-[#020817] bg-[radial-gradient(circle_at_0%_12%,_rgba(0,212,255,0.18),_transparent_30%),radial-gradient(circle_at_100%_88%,_rgba(168,85,247,0.16),_transparent_32%),linear-gradient(135deg,#020817_0%,#061426_52%,#081B33_100%)] px-4 py-8 text-slate-100">
-      <form onSubmit={submit} className="relative z-10 w-full max-w-md">
+      <form onSubmit={submit} className="relative z-10 w-full max-w-md" autoComplete="off">
         <GlassCard className="p-6">
         <div className="mb-6 border-b border-cyan-300/10 pb-4">
           <div className="mb-3 grid h-12 w-20 place-items-center rounded-lg border border-cyan-300/[0.35] bg-cyan-300/[0.12] text-[11px] font-black text-cyan-50 shadow-neon">MSCILABS</div>
@@ -53,7 +53,7 @@ export default function LoginPage() {
 
         <label className="mb-4 block">
           <span className="mb-1 block text-sm font-medium text-slate-300">Tài khoản</span>
-          <Input value={account} onChange={(event) => setAccount(event.target.value)} autoComplete="username" />
+          <Input value={account} onChange={(event) => setAccount(event.target.value)} autoComplete="off" />
         </label>
 
         <label className="mb-4 block">
@@ -62,7 +62,7 @@ export default function LoginPage() {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             type="password"
-            autoComplete="current-password"
+            autoComplete="new-password"
           />
         </label>
 
