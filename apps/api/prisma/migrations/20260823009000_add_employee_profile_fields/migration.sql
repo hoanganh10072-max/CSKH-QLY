@@ -1,0 +1,15 @@
+ALTER TABLE "users"
+ADD COLUMN "employee_code" TEXT,
+ADD COLUMN "department" TEXT,
+ADD COLUMN "position_title" TEXT,
+ADD COLUMN "date_of_birth" DATE,
+ADD COLUMN "gender" TEXT,
+ADD COLUMN "citizen_id" TEXT,
+ADD COLUMN "citizen_issued_date" DATE,
+ADD COLUMN "citizen_issued_place" TEXT,
+ADD COLUMN "current_address" TEXT,
+ADD COLUMN "hometown" TEXT,
+ADD COLUMN "emergency_contact_name" TEXT,
+ADD COLUMN "emergency_contact_phone" TEXT,
+ADD COLUMN "start_date" DATE,
+ADD COLUMN "personal_note" TEXT;

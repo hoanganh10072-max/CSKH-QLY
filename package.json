@@ -1,0 +1,19 @@
+{
+  "name": "cskh-crm",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n API,WEB -c green,blue \"npm run dev -w @cskh/api\" \"npm run dev -w @cskh/web\"",
+    "build": "npm run build --workspaces",
+    "typecheck": "npm run typecheck --workspaces",
+    "prisma:generate": "npm run prisma:generate -w @cskh/api",
+    "prisma:migrate": "npm run prisma:migrate -w @cskh/api",
+    "seed": "npm run seed -w @cskh/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

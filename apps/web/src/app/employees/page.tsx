@@ -1,0 +1,948 @@
+"use client";
+
+import { CalendarDays, CircleDollarSign, Eye, KeyRound, MessageSquareText, PhoneCall, Plus, Save, Trash2, Users, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
+import { ErrorAlert, SuccessAlert, WarningAlert } from "@/components/alert";
+import { AppShell } from "@/components/app-shell";
+import { PageHeading } from "@/components/page-heading";
+import { StatusBadge } from "@/components/status-badge";
+import { Avatar } from "@/components/UI/Avatar";
+import { GlassCard } from "@/components/UI/GlassCard";
+import { Input } from "@/components/UI/Input";
+import { NeonButton } from "@/components/UI/NeonButton";
+import { Select } from "@/components/UI/Select";
+import { GlassTable, TableBody, TableHead, TableRow, Td, Th } from "@/components/UI/Table";
+import { apiFetch, describeError, getStoredUser } from "@/lib/api";
+import type { SessionUser, UserRole, UserStatus } from "@/lib/types";
+import { roleLabels } from "@/lib/types";
+
+type DayKey = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
+
+type ScheduleDay = {
+  working: boolean;
+  start: string;
+  end: string;
+};
+
+type WeeklySchedule = {
+  id?: string;
+  userId?: string;
+  weekStart: string;
+  note: string;
+  days: Record<DayKey, ScheduleDay>;
+  updatedAt?: string;
+};
+
+type Employee = SessionUser & {
+  createdAt: string;
+  revenue: number;
+  _count: {
+    ownedCustomers: number;
+    interactions: number;
+    tasks: number;
+  };
+};
+
+const currencyFormat = new Intl.NumberFormat("vi-VN", {
+  style: "currency",
+  currency: "VND",
+  maximumFractionDigits: 0
+});
+
+const dateFormat = new Intl.DateTimeFormat("vi-VN", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric"
+});
+
+const compactDateFormat = new Intl.DateTimeFormat("vi-VN", {
+  day: "2-digit",
+  month: "2-digit"
+});
+
+const formatOptionalDate = (value?: string | null) => {
+  if (!value) return "Chưa cập nhật";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Chưa cập nhật";
+  return dateFormat.format(date);
+};
+
+const dayItems: Array<{ key: DayKey; label: string }> = [
+  { key: "monday", label: "Thứ hai" },
+  { key: "tuesday", label: "Thứ ba" },
+  { key: "wednesday", label: "Thứ tư" },
+  { key: "thursday", label: "Thứ năm" },
+  { key: "friday", label: "Thứ sáu" },
+  { key: "saturday", label: "Thứ bảy" },
+  { key: "sunday", label: "Chủ nhật" }
+];
+
+const localDate = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const mondayOfWeek = (date: Date) => {
+  const next = new Date(date);
+  const day = next.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  next.setDate(next.getDate() + diff);
+  next.setHours(0, 0, 0, 0);
+  return next;
+};
+
+const normalizeWeekStart = (value: string) => {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return localDate(mondayOfWeek(date));
+};
+
+const defaultWeekStart = () => localDate(mondayOfWeek(new Date()));
+
+const defaultSchedule = (weekStart: string): WeeklySchedule => ({
+  weekStart,
+  note: "",
+  days: {
+    monday: { working: true, start: "08:00", end: "17:00" },
+    tuesday: { working: true, start: "08:00", end: "17:00" },
+    wednesday: { working: true, start: "08:00", end: "17:00" },
+    thursday: { working: true, start: "08:00", end: "17:00" },
+    friday: { working: true, start: "08:00", end: "17:00" },
+    saturday: { working: false, start: "", end: "" },
+    sunday: { working: false, start: "", end: "" }
+  }
+});
+
+export default function EmployeesPage() {
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [loadingSchedule, setLoadingSchedule] = useState(false);
+  const [loadingWeeklySchedules, setLoadingWeeklySchedules] = useState(false);
+  const [savingAccount, setSavingAccount] = useState(false);
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [deletingId, setDeletingId] = useState("");
+  const [viewEmployeeId, setViewEmployeeId] = useState("");
+  const [createForm, setCreateForm] = useState({
+    name: "",
+    username: "",
+    email: "",
+    password: "1",
+    role: "STAFF" as UserRole
+  });
+  const [accountForm, setAccountForm] = useState({
+    username: "",
+    email: "",
+    role: "STAFF" as UserRole,
+    status: "ACTIVE" as UserStatus,
+    password: ""
+  });
+  const [weekStart, setWeekStart] = useState(defaultWeekStart);
+  const [schedule, setSchedule] = useState<WeeklySchedule>(() => defaultSchedule(defaultWeekStart()));
+  const [weeklySchedules, setWeeklySchedules] = useState<Record<string, WeeklySchedule>>({});
+
+  const selectedEmployee = useMemo(
+    () => employees.find((employee) => employee.id === selectedId) || null,
+    [employees, selectedId]
+  );
+
+  const viewedEmployee = useMemo(
+    () => employees.find((employee) => employee.id === viewEmployeeId) || null,
+    [employees, viewEmployeeId]
+  );
+
+  const totals = useMemo(() => {
+    return employees.reduce(
+      (summary, employee) => ({
+        activeCustomers: summary.activeCustomers + employee._count.ownedCustomers,
+        consultations: summary.consultations + employee._count.interactions,
+        revenue: summary.revenue + Number(employee.revenue || 0)
+      }),
+      { activeCustomers: 0, consultations: 0, revenue: 0 }
+    );
+  }, [employees]);
+
+  const load = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await apiFetch<{ users: Employee[] }>("/users");
+      setEmployees(data.users);
+      setSelectedId((current) => {
+        if (current && data.users.some((employee) => employee.id === current)) return current;
+        return data.users[0]?.id || "";
+      });
+    } catch (caught) {
+      setError(describeError(caught, "Không tải được danh sách nhân viên"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadSchedule = async (employeeId: string, targetWeekStart: string) => {
+    if (!employeeId) return;
+
+    setLoadingSchedule(true);
+    setError("");
+    try {
+      const data = await apiFetch<{ schedule: WeeklySchedule | null }>(`/users/${employeeId}/schedule?weekStart=${encodeURIComponent(targetWeekStart)}`);
+      setSchedule(data.schedule || defaultSchedule(targetWeekStart));
+    } catch (caught) {
+      setSchedule(defaultSchedule(targetWeekStart));
+      setError(describeError(caught, "Không tải được lịch làm việc của nhân viên"));
+    } finally {
+      setLoadingSchedule(false);
+    }
+  };
+
+  const loadWeeklySchedules = async (targetWeekStart: string) => {
+    setLoadingWeeklySchedules(true);
+    setError("");
+    try {
+      const data = await apiFetch<{ schedules: WeeklySchedule[] }>(`/users/schedules?weekStart=${encodeURIComponent(targetWeekStart)}`);
+      setWeeklySchedules(
+        Object.fromEntries(data.schedules.filter((item) => item.userId).map((item) => [item.userId as string, item]))
+      );
+    } catch (caught) {
+      setWeeklySchedules({});
+      setError(describeError(caught, "Không tải được bảng lịch làm việc tuần"));
+    } finally {
+      setLoadingWeeklySchedules(false);
+    }
+  };
+
+  useEffect(() => {
+    const stored = getStoredUser();
+    setUser(stored);
+    if (stored?.role === "ADMIN") {
+      load();
+    } else {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!selectedEmployee) return;
+    setAccountForm({
+      username: selectedEmployee.username || "",
+      email: selectedEmployee.email,
+      role: selectedEmployee.role,
+      status: selectedEmployee.status,
+      password: ""
+    });
+    loadSchedule(selectedEmployee.id, weekStart);
+  }, [selectedEmployee, weekStart]);
+
+  useEffect(() => {
+    if (user?.role !== "ADMIN" || !employees.length) {
+      setWeeklySchedules({});
+      return;
+    }
+
+    loadWeeklySchedules(weekStart);
+  }, [user?.role, employees, weekStart]);
+
+  const createEmployee = async (event: FormEvent) => {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    try {
+      await apiFetch("/users", { method: "POST", json: createForm });
+      setCreateForm({ name: "", username: "", email: "", password: "1", role: "STAFF" });
+      setMessage("Đã tạo tài khoản nhân viên.");
+      await load();
+    } catch (caught) {
+      setError(describeError(caught, "Không thể tạo nhân viên"));
+    }
+  };
+
+  const saveAccount = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selectedEmployee) return;
+
+    setSavingAccount(true);
+    setError("");
+    setMessage("");
+    try {
+      await apiFetch(`/users/${selectedEmployee.id}/account`, {
+        method: "PATCH",
+        json: {
+          username: accountForm.username,
+          email: accountForm.email,
+          role: accountForm.role,
+          status: accountForm.status,
+          ...(accountForm.password ? { password: accountForm.password } : {})
+        }
+      });
+      setAccountForm((old) => ({ ...old, password: "" }));
+      setMessage(`Đã cập nhật tài khoản đăng nhập của ${selectedEmployee.name}.`);
+      await load();
+    } catch (caught) {
+      setError(describeError(caught, "Không thể cập nhật tài khoản đăng nhập"));
+    } finally {
+      setSavingAccount(false);
+    }
+  };
+
+  const updateScheduleDay = (key: DayKey, patch: Partial<ScheduleDay>) => {
+    setSchedule((old) => ({
+      ...old,
+      days: {
+        ...old.days,
+        [key]: {
+          ...old.days[key],
+          ...patch
+        }
+      }
+    }));
+  };
+
+  const saveSchedule = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selectedEmployee) return;
+
+    setSavingSchedule(true);
+    setError("");
+    setMessage("");
+    try {
+      const data = await apiFetch<{ schedule: WeeklySchedule }>(`/users/${selectedEmployee.id}/schedule`, {
+        method: "PUT",
+        json: {
+          ...schedule,
+          weekStart
+        }
+      });
+      setSchedule(data.schedule);
+      setWeeklySchedules((old) => ({ ...old, [selectedEmployee.id]: data.schedule }));
+      setMessage("Đã lưu lịch làm việc của nhân viên.");
+    } catch (caught) {
+      setError(describeError(caught, "Không thể lưu lịch làm việc của nhân viên"));
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
+
+  const viewEmployeeInfo = (employee: Employee) => {
+    setViewEmployeeId(employee.id);
+    setSelectedId(employee.id);
+  };
+
+  const deleteEmployee = async (employee: Employee) => {
+    if (employee.id === user?.id) {
+      setError("Không thể xóa tài khoản đang đăng nhập.");
+      return;
+    }
+
+    const confirmed = window.confirm(`Xóa nhân viên ${employee.name}? Tài khoản này sẽ không còn đăng nhập được và không còn hiện trong danh sách.`);
+    if (!confirmed) return;
+
+    setDeletingId(employee.id);
+    setError("");
+    setMessage("");
+    try {
+      await apiFetch(`/users/${employee.id}`, { method: "DELETE" });
+      const nextEmployees = employees.filter((item) => item.id !== employee.id);
+      setEmployees(nextEmployees);
+      setWeeklySchedules((old) => {
+        const next = { ...old };
+        delete next[employee.id];
+        return next;
+      });
+      if (selectedId === employee.id) {
+        const nextSelectedId = nextEmployees[0]?.id || "";
+        setSelectedId(nextSelectedId);
+        if (!nextSelectedId) setSchedule(defaultSchedule(weekStart));
+      }
+      if (viewEmployeeId === employee.id) setViewEmployeeId("");
+      setMessage(`Đã xóa nhân viên ${employee.name}.`);
+    } catch (caught) {
+      setError(describeError(caught, "Không thể xóa nhân viên"));
+    } finally {
+      setDeletingId("");
+    }
+  };
+
+  return (
+    <AppShell>
+      <PageHeading title="Nhân viên" subtitle="Quản lý tài khoản đăng nhập, lịch làm việc và hiệu suất nhân viên." />
+
+      {!user ? (
+        <div className="glass-card p-4 text-sm text-slate-400">Đang tải quyền truy cập...</div>
+      ) : user.role !== "ADMIN" ? (
+        <WarningAlert>Chỉ quản trị viên được quản lý nhân viên.</WarningAlert>
+      ) : (
+        <div className="space-y-5">
+          <section className="grid gap-4 md:grid-cols-3">
+            <MetricCard label="Khách hàng đang chăm sóc" value={String(totals.activeCustomers)} icon={PhoneCall} tone="cyan" />
+            <MetricCard label="Tư vấn khách hàng" value={String(totals.consultations)} icon={MessageSquareText} tone="violet" />
+            <MetricCard label="Doanh thu nhân viên" value={currencyFormat.format(totals.revenue)} icon={CircleDollarSign} tone="emerald" />
+          </section>
+
+          {error ? <ErrorAlert>{error}</ErrorAlert> : null}
+          {message ? <SuccessAlert>{message}</SuccessAlert> : null}
+
+          <WeeklyScheduleOverview
+            employees={employees}
+            schedules={weeklySchedules}
+            weekStart={weekStart}
+            setWeekStart={setWeekStart}
+            loading={loading || loadingWeeklySchedules}
+            selectedId={selectedId}
+            onSelectEmployee={setSelectedId}
+          />
+
+          <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_520px]">
+            <GlassCard>
+              <div className="flex items-center gap-2 border-b border-cyan-300/10 px-4 py-3">
+                <Users className="h-4 w-4 text-brand" aria-hidden="true" />
+                <h2 className="text-base font-semibold text-white">Danh sách nhân viên</h2>
+              </div>
+              <GlassTable className="border-0">
+                <TableHead>
+                  <tr>
+                    <Th>Nhân viên</Th>
+                    <Th>Tài khoản</Th>
+                    <Th>Vai trò</Th>
+                    <Th>Trạng thái</Th>
+                    <Th className="text-right">Khách chăm sóc</Th>
+                    <Th className="text-right">Tư vấn</Th>
+                    <Th className="text-right">Doanh thu</Th>
+                    <Th className="text-right">Công việc</Th>
+                    <Th className="text-right">Thao tác</Th>
+                  </tr>
+                </TableHead>
+                <TableBody>
+                  {loading ? (
+                    <tr><Td className="py-6 text-slate-400" colSpan={9}>Đang tải...</Td></tr>
+                  ) : employees.length ? employees.map((employee) => (
+                    <TableRow key={employee.id}>
+                      <Td>
+                        <div className="flex items-center gap-3">
+                          <Avatar name={employee.name} />
+                          <div>
+                            <div className="font-medium text-white">{employee.name}</div>
+                            <div className="text-xs text-slate-400">{employee.email}</div>
+                          </div>
+                        </div>
+                      </Td>
+                      <Td className="font-semibold text-cyan-50">{employee.username || "-"}</Td>
+                      <Td className="text-slate-300">{roleLabels[employee.role]}</Td>
+                      <Td><StatusBadge status={employee.status} /></Td>
+                      <Td className="text-right text-white">{employee._count.ownedCustomers}</Td>
+                      <Td className="text-right text-white">{employee._count.interactions}</Td>
+                      <Td className="text-right text-white">{currencyFormat.format(Number(employee.revenue || 0))}</Td>
+                      <Td className="text-right text-white">{employee._count.tasks}</Td>
+                      <Td>
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => viewEmployeeInfo(employee)}
+                            className="inline-flex h-9 items-center gap-2 rounded-lg border border-cyan-300/[0.35] bg-cyan-300/[0.10] px-3 text-sm font-semibold text-cyan-50 transition hover:bg-cyan-300/[0.16] focus-ring"
+                          >
+                            <Eye className="h-4 w-4" aria-hidden="true" />
+                            Xem thông tin
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteEmployee(employee)}
+                            disabled={deletingId === employee.id || employee.id === user.id}
+                            title={employee.id === user.id ? "Không thể xóa tài khoản đang đăng nhập" : undefined}
+                            className="inline-flex h-9 items-center gap-2 rounded-lg border border-rose-300/[0.35] bg-rose-500/[0.10] px-3 text-sm font-semibold text-rose-50 transition hover:bg-rose-500/[0.16] disabled:cursor-not-allowed disabled:opacity-50 focus-ring"
+                          >
+                            <Trash2 className="h-4 w-4" aria-hidden="true" />
+                            {deletingId === employee.id ? "Đang xóa..." : "Xóa"}
+                          </button>
+                        </div>
+                      </Td>
+                    </TableRow>
+                  )) : (
+                    <tr><Td className="py-6 text-slate-400" colSpan={9}>Chưa có nhân viên.</Td></tr>
+                  )}
+                </TableBody>
+              </GlassTable>
+            </GlassCard>
+
+            <div className="space-y-5">
+              <AccountManager
+                employee={selectedEmployee}
+                form={accountForm}
+                setForm={setAccountForm}
+                saving={savingAccount}
+                onSubmit={saveAccount}
+              />
+              <ScheduleEditor
+                employee={selectedEmployee}
+                weekStart={weekStart}
+                setWeekStart={setWeekStart}
+                schedule={schedule}
+                setSchedule={setSchedule}
+                loading={loadingSchedule}
+                saving={savingSchedule}
+                onSubmit={saveSchedule}
+                updateScheduleDay={updateScheduleDay}
+              />
+              <CreateEmployeeForm form={createForm} setForm={setCreateForm} onSubmit={createEmployee} />
+            </div>
+          </div>
+
+          {viewedEmployee ? (
+            <EmployeeInfoDialog
+              employee={viewedEmployee}
+              onClose={() => setViewEmployeeId("")}
+            />
+          ) : null}
+        </div>
+      )}
+    </AppShell>
+  );
+}
+
+function MetricCard({ label, value, icon: Icon, tone }: { label: string; value: string; icon: LucideIcon; tone: "cyan" | "violet" | "emerald" }) {
+  const toneClass = {
+    cyan: "border-cyan-300/20 bg-cyan-300/10 text-cyan-100",
+    violet: "border-violet-300/20 bg-violet-300/10 text-violet-100",
+    emerald: "border-emerald-300/20 bg-emerald-300/10 text-emerald-100"
+  }[tone];
+
+  return (
+    <GlassCard className="p-4" hover>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm text-slate-400">{label}</div>
+          <div className="mt-2 text-3xl font-semibold text-white">{value}</div>
+        </div>
+        <div className={`grid h-11 w-11 place-items-center rounded-lg border shadow-neon ${toneClass}`}>
+          <Icon className="h-5 w-5" aria-hidden="true" />
+        </div>
+      </div>
+    </GlassCard>
+  );
+}
+
+function EmployeeInfoDialog({ employee, onClose }: { employee: Employee; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/75 px-4 py-6 backdrop-blur-sm">
+      <div className="glass-card max-h-[calc(100vh-48px)] w-full max-w-5xl overflow-hidden">
+        <div className="flex items-center justify-between gap-3 border-b border-cyan-300/10 px-5 py-4">
+          <div className="flex items-center gap-3">
+            <Avatar name={employee.name} />
+            <div>
+              <h2 className="text-lg font-semibold text-white">Thông tin nhân viên</h2>
+              <p className="text-sm text-slate-400">{employee.name}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-9 w-9 place-items-center rounded-lg border border-cyan-300/[0.20] bg-white/[0.04] text-slate-200 transition hover:bg-white/[0.08] focus-ring"
+            aria-label="Đóng thông tin nhân viên"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+
+        <div className="grid max-h-[calc(100vh-150px)] gap-3 overflow-auto p-5 sm:grid-cols-2 xl:grid-cols-3">
+          <InfoItem label="Họ tên" value={employee.name} />
+          <InfoItem label="Tên đăng nhập" value={employee.username || "Chưa thiết lập"} />
+          <InfoItem label="Bộ phận" value={employee.department || "Chưa cập nhật"} />
+          <InfoItem label="Ngày vào làm" value={formatOptionalDate(employee.startDate)} />
+          <InfoItem label="Thư điện tử" value={employee.email} />
+          <InfoItem label="Số điện thoại" value={employee.phone || "Chưa cập nhật"} />
+          <InfoItem label="Nơi ở hiện tại" value={employee.currentAddress || "Chưa cập nhật"} />
+          <InfoItem label="Quê quán" value={employee.hometown || "Chưa cập nhật"} />
+          <InfoItem label="Ngày sinh" value={formatOptionalDate(employee.dateOfBirth)} />
+          <InfoItem label="Giới tính" value={employee.gender || "Chưa cập nhật"} />
+          <InfoItem label="Số CCCD/CMND" value={employee.citizenId || "Chưa cập nhật"} />
+          <InfoItem label="Ngày cấp" value={formatOptionalDate(employee.citizenIssuedDate)} />
+          <InfoItem label="Nơi cấp" value={employee.citizenIssuedPlace || "Chưa cập nhật"} />
+          <InfoItem label="Số tài khoản" value={employee.bankAccountNumber || "Chưa cập nhật"} />
+          <InfoItem label="Tên ngân hàng" value={employee.bankName || "Chưa cập nhật"} />
+          <InfoItem label="Tên chủ tài khoản" value={employee.bankAccountHolder || "Chưa cập nhật"} />
+          <InfoItem label="Vai trò" value={roleLabels[employee.role]} />
+          <InfoItem label="Trạng thái" value={<StatusBadge status={employee.status} />} />
+          <InfoItem label="Khách hàng đang chăm sóc" value={String(employee._count.ownedCustomers)} />
+          <InfoItem label="Tư vấn khách hàng" value={String(employee._count.interactions)} />
+          <InfoItem label="Doanh thu" value={currencyFormat.format(Number(employee.revenue || 0))} />
+          <InfoItem label="Công việc" value={String(employee._count.tasks)} />
+          <InfoItem label="Ngày tạo tài khoản" value={dateFormat.format(new Date(employee.createdAt))} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InfoItem({ label, value }: { label: string; value: string | ReactNode }) {
+  return (
+    <div className="rounded-lg border border-cyan-300/[0.12] bg-white/[0.04] px-3 py-2">
+      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 break-words text-sm font-semibold text-white">{value}</div>
+    </div>
+  );
+}
+
+function WeeklyScheduleOverview({
+  employees,
+  schedules,
+  weekStart,
+  setWeekStart,
+  loading,
+  selectedId,
+  onSelectEmployee
+}: {
+  employees: Employee[];
+  schedules: Record<string, WeeklySchedule>;
+  weekStart: string;
+  setWeekStart: (value: string) => void;
+  loading: boolean;
+  selectedId: string;
+  onSelectEmployee: (id: string) => void;
+}) {
+  const weekBase = new Date(`${weekStart}T00:00:00`);
+  const days = dayItems.map((item, index) => {
+    const date = new Date(weekBase);
+    date.setDate(weekBase.getDate() + index);
+
+    const workingEmployees = employees
+      .map((employee) => {
+        const day = schedules[employee.id]?.days[item.key];
+        if (!day?.working) return null;
+
+        return {
+          employee,
+          day,
+          note: schedules[employee.id]?.note || ""
+        };
+      })
+      .filter(Boolean) as Array<{ employee: Employee; day: ScheduleDay; note: string }>;
+
+    return {
+      ...item,
+      date,
+      workingEmployees
+    };
+  });
+
+  return (
+    <GlassCard>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-300/10 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="h-4 w-4 text-brand" aria-hidden="true" />
+          <h2 className="text-base font-semibold text-white">Bảng lịch làm việc tuần</h2>
+        </div>
+        <label className="flex items-center gap-2 text-sm text-slate-300">
+          <span>Tuần bắt đầu</span>
+          <Input
+            type="date"
+            value={weekStart}
+            onChange={(event) => setWeekStart(normalizeWeekStart(event.target.value))}
+            className="w-40"
+          />
+        </label>
+      </div>
+      {loading ? (
+        <div className="p-4 text-sm text-slate-400">Đang tải bảng lịch làm việc...</div>
+      ) : employees.length ? (
+        <div className="grid gap-px overflow-hidden rounded-b-lg bg-cyan-300/10 md:grid-cols-2 xl:grid-cols-7">
+          {days.map((item) => (
+            <section key={item.key} className="min-h-72 bg-slate-950/55 p-3">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold uppercase text-cyan-100">{item.label}</h3>
+                  <div className="mt-1 text-2xl font-semibold text-white">{compactDateFormat.format(item.date)}</div>
+                </div>
+                <span className="rounded-full border border-cyan-300/[0.24] bg-cyan-300/[0.10] px-2.5 py-1 text-xs font-semibold text-cyan-100">
+                  {item.workingEmployees.length} người
+                </span>
+              </div>
+
+              {item.workingEmployees.length ? (
+                <div className="space-y-2">
+                  {item.workingEmployees.map(({ employee, day, note }) => (
+                    <button
+                      key={`${item.key}-${employee.id}`}
+                      type="button"
+                      onClick={() => onSelectEmployee(employee.id)}
+                      className={`w-full rounded-lg border p-3 text-left transition hover:border-cyan-300/45 hover:bg-cyan-300/[0.10] focus-ring ${
+                        selectedId === employee.id
+                          ? "border-cyan-300/[0.45] bg-cyan-300/[0.12]"
+                          : "border-emerald-300/[0.22] bg-emerald-300/[0.07]"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Avatar name={employee.name} className="h-8 w-8 text-[10px]" />
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-white">{employee.name}</div>
+                          <div className="text-xs text-slate-400">{roleLabels[employee.role]}</div>
+                        </div>
+                      </div>
+                      <div className="mt-3 rounded-lg border border-emerald-300/[0.18] bg-emerald-300/[0.10] px-2.5 py-2 text-center text-sm font-semibold text-emerald-100">
+                        {day.start} đến {day.end}
+                      </div>
+                      {note ? <div className="mt-2 line-clamp-2 text-xs text-slate-400">{note}</div> : null}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="grid min-h-40 place-items-center rounded-lg border border-slate-500/20 bg-slate-500/[0.08] px-3 text-center text-sm font-medium text-slate-400">
+                  Không có nhân viên làm việc
+                </div>
+              )}
+            </section>
+          ))}
+        </div>
+      ) : (
+        <div className="p-4 text-sm text-slate-400">Chưa có nhân viên.</div>
+      )}
+    </GlassCard>
+  );
+}
+
+function AccountManager({
+  employee,
+  form,
+  setForm,
+  saving,
+  onSubmit
+}: {
+  employee: Employee | null;
+  form: {
+    username: string;
+    email: string;
+    role: UserRole;
+    status: UserStatus;
+    password: string;
+  };
+  setForm: Dispatch<SetStateAction<{
+    username: string;
+    email: string;
+    role: UserRole;
+    status: UserStatus;
+    password: string;
+  }>>;
+  saving: boolean;
+  onSubmit: (event: FormEvent) => void;
+}) {
+  return (
+    <form onSubmit={onSubmit} className="glass-card p-4">
+      <div className="mb-4 flex items-center gap-2 border-b border-cyan-300/10 pb-3">
+        <KeyRound className="h-4 w-4 text-brand" aria-hidden="true" />
+        <h2 className="text-base font-semibold text-white">Quản lý tài khoản đăng nhập</h2>
+      </div>
+
+      {!employee ? (
+        <div className="text-sm text-slate-400">Chọn nhân viên để quản lý tài khoản đăng nhập.</div>
+      ) : (
+        <>
+          <div className="mb-3 rounded-lg border border-cyan-300/[0.14] bg-cyan-300/[0.06] px-3 py-2 text-sm text-slate-300">
+            {employee.name}
+          </div>
+          <Field label="Tên đăng nhập" value={form.username} onChange={(value) => setForm((old) => ({ ...old, username: value }))} />
+          <Field label="Thư điện tử đăng nhập" type="email" value={form.email} onChange={(value) => setForm((old) => ({ ...old, email: value }))} />
+          <label className="mb-3 block">
+            <span className="mb-1 block text-sm font-medium text-slate-300">Vai trò</span>
+            <Select value={form.role} onChange={(event) => setForm((old) => ({ ...old, role: event.target.value as UserRole }))}>
+              <option value="STAFF">Nhân viên</option>
+              <option value="ADMIN">Quản trị viên</option>
+            </Select>
+          </label>
+          <label className="mb-3 block">
+            <span className="mb-1 block text-sm font-medium text-slate-300">Trạng thái tài khoản</span>
+            <Select value={form.status} onChange={(event) => setForm((old) => ({ ...old, status: event.target.value as UserStatus }))}>
+              <option value="ACTIVE">Hoạt động</option>
+              <option value="INACTIVE">Tạm khóa</option>
+            </Select>
+          </label>
+          <Field
+            label="Mật khẩu mới"
+            type="password"
+            value={form.password}
+            onChange={(value) => setForm((old) => ({ ...old, password: value }))}
+            required={false}
+          />
+          <NeonButton type="submit" disabled={saving} className="w-full">
+            <Save className="h-4 w-4" aria-hidden="true" />
+            {saving ? "Đang lưu..." : "Lưu tài khoản"}
+          </NeonButton>
+        </>
+      )}
+    </form>
+  );
+}
+
+function ScheduleEditor({
+  employee,
+  weekStart,
+  setWeekStart,
+  schedule,
+  setSchedule,
+  loading,
+  saving,
+  onSubmit,
+  updateScheduleDay
+}: {
+  employee: Employee | null;
+  weekStart: string;
+  setWeekStart: (value: string) => void;
+  schedule: WeeklySchedule;
+  setSchedule: Dispatch<SetStateAction<WeeklySchedule>>;
+  loading: boolean;
+  saving: boolean;
+  onSubmit: (event: FormEvent) => void;
+  updateScheduleDay: (key: DayKey, patch: Partial<ScheduleDay>) => void;
+}) {
+  return (
+    <form onSubmit={onSubmit} className="glass-card p-4">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-cyan-300/10 pb-3">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="h-4 w-4 text-brand" aria-hidden="true" />
+          <h2 className="text-base font-semibold text-white">Lịch làm việc nhân viên</h2>
+        </div>
+        <label className="flex items-center gap-2 text-sm text-slate-300">
+          <span>Tuần</span>
+          <Input type="date" value={weekStart} onChange={(event) => setWeekStart(normalizeWeekStart(event.target.value))} className="w-40" />
+        </label>
+      </div>
+
+      {!employee ? (
+        <div className="text-sm text-slate-400">Chọn nhân viên để xem và cập nhật lịch làm việc.</div>
+      ) : loading ? (
+        <div className="py-6 text-sm text-slate-400">Đang tải lịch làm việc...</div>
+      ) : (
+        <>
+          <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-1">
+            {dayItems.map((item) => {
+              const day = schedule.days[item.key];
+              return (
+                <div key={item.key} className="rounded-lg border border-cyan-300/[0.12] bg-white/[0.04] p-3">
+                  <label className="mb-3 flex items-center justify-between gap-3">
+                    <span className="text-sm font-semibold text-white">{item.label}</span>
+                    <input
+                      type="checkbox"
+                      checked={day.working}
+                      onChange={(event) => {
+                        const working = event.target.checked;
+                        updateScheduleDay(item.key, {
+                          working,
+                          start: working ? day.start || "08:00" : "",
+                          end: working ? day.end || "17:00" : ""
+                        });
+                      }}
+                      className="h-4 w-4 accent-cyan-300"
+                    />
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block">
+                      <span className="mb-1 block text-xs text-slate-400">Bắt đầu</span>
+                      <Input
+                        type="time"
+                        value={day.start}
+                        disabled={!day.working}
+                        onChange={(event) => updateScheduleDay(item.key, { start: event.target.value })}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs text-slate-400">Kết thúc</span>
+                      <Input
+                        type="time"
+                        value={day.end}
+                        disabled={!day.working}
+                        onChange={(event) => updateScheduleDay(item.key, { end: event.target.value })}
+                      />
+                    </label>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <label className="mt-4 block">
+            <span className="mb-1 block text-sm font-medium text-slate-300">Ghi chú</span>
+            <textarea
+              value={schedule.note}
+              onChange={(event) => setSchedule((old) => ({ ...old, note: event.target.value }))}
+              rows={3}
+              className="neon-field min-h-24 w-full px-3 py-2"
+              placeholder="Ví dụ: ca làm linh hoạt, nghỉ phép, đổi ca..."
+            />
+          </label>
+          <NeonButton type="submit" disabled={saving} className="mt-4 w-full">
+            <Save className="h-4 w-4" aria-hidden="true" />
+            {saving ? "Đang lưu..." : "Lưu lịch làm việc"}
+          </NeonButton>
+        </>
+      )}
+    </form>
+  );
+}
+
+function CreateEmployeeForm({
+  form,
+  setForm,
+  onSubmit
+}: {
+  form: {
+    name: string;
+    username: string;
+    email: string;
+    password: string;
+    role: UserRole;
+  };
+  setForm: Dispatch<SetStateAction<{
+    name: string;
+    username: string;
+    email: string;
+    password: string;
+    role: UserRole;
+  }>>;
+  onSubmit: (event: FormEvent) => void;
+}) {
+  return (
+    <form onSubmit={onSubmit} className="glass-card p-4">
+      <h2 className="mb-3 text-base font-semibold text-white">Tạo tài khoản</h2>
+      <Field label="Họ tên" value={form.name} onChange={(value) => setForm((old) => ({ ...old, name: value }))} />
+      <Field label="Tên đăng nhập" value={form.username} onChange={(value) => setForm((old) => ({ ...old, username: value }))} />
+      <Field label="Thư điện tử" type="email" value={form.email} onChange={(value) => setForm((old) => ({ ...old, email: value }))} />
+      <Field label="Mật khẩu" type="password" value={form.password} onChange={(value) => setForm((old) => ({ ...old, password: value }))} />
+      <label className="mb-3 block">
+        <span className="mb-1 block text-sm font-medium text-slate-300">Vai trò</span>
+        <Select value={form.role} onChange={(event) => setForm((old) => ({ ...old, role: event.target.value as UserRole }))}>
+          <option value="STAFF">Nhân viên</option>
+          <option value="ADMIN">Quản trị viên</option>
+        </Select>
+      </label>
+      <NeonButton className="w-full">
+        <Plus className="h-4 w-4" aria-hidden="true" />
+        Tạo tài khoản
+      </NeonButton>
+    </form>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+  disabled = false,
+  required = true
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  disabled?: boolean;
+  required?: boolean;
+}) {
+  return (
+    <label className="mb-3 block">
+      <span className="mb-1 block text-sm font-medium text-slate-300">{label}</span>
+      <Input required={required} disabled={disabled} value={value} type={type} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}

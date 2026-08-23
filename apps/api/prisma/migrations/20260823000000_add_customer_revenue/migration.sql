@@ -1,0 +1,2 @@
+ALTER TABLE "customers"
+ADD COLUMN "revenue" DECIMAL(14, 2) NOT NULL DEFAULT 0;

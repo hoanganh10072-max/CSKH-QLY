@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cskh-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cskh}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cskh_password}
+      POSTGRES_DB: ${POSTGRES_DB:-cskh}
+    ports:
+      - "5433:5432"
+    volumes:
+      - cskh_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cskh} -d ${POSTGRES_DB:-cskh}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: cskh-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cskh}:${POSTGRES_PASSWORD:-cskh_password}@postgres:5432/${POSTGRES_DB:-cskh}?schema=public
+      DIRECT_URL: postgresql://${POSTGRES_USER:-cskh}:${POSTGRES_PASSWORD:-cskh_password}@postgres:5432/${POSTGRES_DB:-cskh}?schema=public
+      JWT_SECRET: ${JWT_SECRET:-change-this-secret-to-at-least-32-characters}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      PORT: 4000
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:3000}
+      SUPABASE_STORAGE_ENABLED: ${SUPABASE_STORAGE_ENABLED:-false}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      SUPABASE_CALL_IMAGES_BUCKET: ${SUPABASE_CALL_IMAGES_BUCKET:-cskh-call-images}
+      NODE_ENV: production
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+    container_name: cskh-web
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  cskh_postgres_data:
