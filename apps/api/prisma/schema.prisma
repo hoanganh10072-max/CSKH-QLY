@@ -82,6 +82,7 @@ model User {
   tasks              Task[]
   createdImports     ImportHistory[]       @relation("ImportCreatedBy")
   weeklySchedules    WeeklyWorkSchedule[]
+  dailyWorkKpis       DailyWorkKpi[]
 
   @@index([deletedAt])
   @@map("users")
@@ -207,4 +208,37 @@ model WeeklyWorkSchedule {
   @@unique([userId, weekStart])
   @@index([weekStart])
   @@map("weekly_work_schedules")
+}
+
+model DailyWorkKpi {
+  id                  String   @id @default(uuid())
+  userId              String   @map("user_id")
+  workDate            DateTime @map("work_date") @db.Date
+  targetCustomers     Int      @default(0) @map("target_customers")
+  receivedCustomers   Int      @default(0) @map("received_customers")
+  calledCustomers     Int      @default(0) @map("called_customers")
+  successfulCalls     Int      @default(0) @map("successful_calls")
+  interestedCustomers Int      @default(0) @map("interested_customers")
+  revenue             Decimal  @default(0) @db.Decimal(14, 2)
+  note                String?
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workDate])
+  @@index([workDate])
+  @@map("daily_work_kpis")
+}
+
+model WorkKpiTarget {
+  id              String   @id @default(uuid())
+  periodMode      String   @map("period_mode")
+  periodKey       String   @map("period_key")
+  targetCustomers Int      @default(0) @map("target_customers")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([periodMode, periodKey])
+  @@index([periodMode])
+  @@map("work_kpi_targets")
 }

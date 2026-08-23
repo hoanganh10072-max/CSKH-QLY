@@ -18,7 +18,7 @@ type LoginResponse = {
 export default function LoginPage() {
   const router = useRouter();
   const [account, setAccount] = useState("admin");
-  const [password, setPassword] = useState("1");
+  const [password, setPassword] = useState("1007");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -46,8 +46,8 @@ export default function LoginPage() {
       <form onSubmit={submit} className="relative z-10 w-full max-w-md">
         <GlassCard className="p-6">
         <div className="mb-6 border-b border-cyan-300/10 pb-4">
-          <div className="mb-3 grid h-12 w-12 place-items-center rounded-lg border border-cyan-300/[0.35] bg-cyan-300/[0.12] text-sm font-black text-cyan-50 shadow-neon">CSKH</div>
-          <h1 className="text-2xl font-semibold text-white">Quản lý CSKH</h1>
+          <div className="mb-3 grid h-12 w-20 place-items-center rounded-lg border border-cyan-300/[0.35] bg-cyan-300/[0.12] text-[11px] font-black text-cyan-50 shadow-neon">MSCILABS</div>
+          <h1 className="text-2xl font-semibold text-white">Quản lý MSCILABS</h1>
           <p className="mt-1 text-sm leading-6 text-slate-400">Đăng nhập để quản lý kho dữ liệu khách hàng.</p>
         </div>
 
@@ -78,8 +78,7 @@ export default function LoginPage() {
         </NeonButton>
 
         <div className="mt-4 rounded-lg border border-cyan-300/[0.15] bg-cyan-300/[0.08] px-3 py-2 text-xs text-slate-300">
-          <div>Tài khoản quản trị thử nghiệm: admin / 1</div>
-          <div className="mt-1">Tài khoản nhân viên thử nghiệm: NV / 1</div>
+          <div>Tài khoản đăng nhập liên hệ admin cấp tài khoản</div>
         </div>
         </GlassCard>
       </form>

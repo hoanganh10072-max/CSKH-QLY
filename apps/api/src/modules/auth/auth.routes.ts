@@ -22,8 +22,7 @@ const loginSchema = z
   });
 
 const loginAliases: Record<string, string> = {
-  admin: "admin@cskh.local",
-  nv: "staff@cskh.local"
+  admin: "admin@mscilabs.local"
 };
 
 const optionalDateSchema = z

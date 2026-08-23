@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import readXlsxFile from "read-excel-file/node";
+import readXlsxFile, { readSheetNames } from "read-excel-file/node";
 import { z } from "zod";
 import { prisma } from "../../config/prisma.js";
 
@@ -92,37 +92,151 @@ const mapRecord = (record: Record<string, unknown>) => {
   return importRowSchema.parse(output);
 };
 
-export const importCustomersFromExcel = async (file: Express.Multer.File, createdBy: string, importName?: string) => {
-  const workbookRows = await readXlsxFile(file.buffer);
+type SpreadsheetSource = {
+  buffer: Buffer;
+  originalname: string;
+};
 
-  if (!workbookRows.length) {
+type ImportValidationError = {
+  sheet?: string;
+  row: number;
+  message: string;
+};
+
+type ParsedImportRow = {
+  sheetName: string;
+  rowNumber: number;
+  row: z.infer<typeof importRowSchema>;
+};
+
+const collectRowsFromWorkbook = async (source: SpreadsheetSource) => {
+  const sheetNames = await readSheetNames(source.buffer);
+
+  if (!sheetNames.length) {
     throw new Error("Tệp bảng tính không có trang dữ liệu");
   }
 
-  const headers = workbookRows[0].map((cell) => String(cell ?? ""));
+  const rows: Array<{ sheetName: string; rowNumber: number; record: Record<string, unknown> }> = [];
 
-  const rows: Array<{ rowNumber: number; record: Record<string, unknown> }> = [];
-  workbookRows.slice(1).forEach((row, index) => {
-    if (!row.some((cell) => String(cell ?? "").trim().length > 0)) return;
+  for (const sheetName of sheetNames) {
+    const workbookRows = await readXlsxFile(source.buffer, { sheet: sheetName });
+    if (!workbookRows.length) continue;
 
-    const record: Record<string, unknown> = {};
-    headers.forEach((header, index) => {
-      if (!header) return;
-      record[header] = row[index] ?? "";
+    const headers = workbookRows[0].map((cell) => String(cell ?? ""));
+
+    workbookRows.slice(1).forEach((row, index) => {
+      if (!row.some((cell) => String(cell ?? "").trim().length > 0)) return;
+
+      const record: Record<string, unknown> = {};
+      headers.forEach((header, index) => {
+        if (!header) return;
+        record[header] = row[index] ?? "";
+      });
+      rows.push({ sheetName, rowNumber: index + 2, record });
     });
-    rows.push({ rowNumber: index + 2, record });
+  }
+
+  if (!rows.length) {
+    throw new Error("Tệp bảng tính không có dòng dữ liệu");
+  }
+
+  return rows;
+};
+
+const parseImportRows = async (source: SpreadsheetSource) => {
+  const rows = await collectRowsFromWorkbook(source);
+  const parsedRows: ParsedImportRow[] = [];
+  const errors: ImportValidationError[] = [];
+
+  for (const { sheetName, rowNumber, record } of rows) {
+    try {
+      parsedRows.push({
+        sheetName,
+        rowNumber,
+        row: mapRecord(record)
+      });
+    } catch (error) {
+      errors.push({
+        sheet: sheetName,
+        row: rowNumber,
+        message: error instanceof Error ? error.message : "Lỗi nhập dữ liệu không xác định"
+      });
+    }
+  }
+
+  return { rows, parsedRows, errors };
+};
+
+const findExistingPhones = async (phones: string[]) => {
+  const existingPhones = new Set<string>();
+  const chunkSize = 1000;
+
+  for (let index = 0; index < phones.length; index += chunkSize) {
+    const chunk = phones.slice(index, index + chunkSize);
+    const customers = await prisma.customer.findMany({
+      where: { phone: { in: chunk } },
+      select: { phone: true }
+    });
+
+    customers.forEach((customer) => {
+      if (customer.phone) existingPhones.add(customer.phone);
+    });
+  }
+
+  return existingPhones;
+};
+
+export const previewCustomersFromSpreadsheet = async (source: SpreadsheetSource) => {
+  const { rows, parsedRows, errors } = await parseImportRows(source);
+  const seenPhones = new Set<string>();
+  const uniqueRows: ParsedImportRow[] = [];
+  let duplicateInFileRows = 0;
+
+  for (const parsedRow of parsedRows) {
+    if (seenPhones.has(parsedRow.row.phone)) {
+      duplicateInFileRows += 1;
+      continue;
+    }
+
+    seenPhones.add(parsedRow.row.phone);
+    uniqueRows.push(parsedRow);
+  }
+
+  const existingPhones = await findExistingPhones(uniqueRows.map((item) => item.row.phone));
+  const duplicateInSystemRows = uniqueRows.filter((item) => existingPhones.has(item.row.phone)).length;
+  const readyRows = uniqueRows.length - duplicateInSystemRows;
+
+  return {
+    totalRows: rows.length,
+    validRows: parsedRows.length,
+    duplicateRows: duplicateInFileRows + duplicateInSystemRows,
+    duplicateInFileRows,
+    duplicateInSystemRows,
+    readyRows,
+    failedRows: errors.length,
+    errors: errors.slice(0, 20)
+  };
+};
+
+export const previewCustomersFromExcel = async (file: Express.Multer.File) =>
+  previewCustomersFromSpreadsheet({
+    buffer: file.buffer,
+    originalname: file.originalname
   });
+
+export const importCustomersFromSpreadsheet = async (source: SpreadsheetSource, createdBy: string, importName?: string) => {
+  const { rows, parsedRows, errors } = await parseImportRows(source);
 
   let successRows = 0;
   let duplicateRows = 0;
-  let failedRows = 0;
-  const errors: Array<{ row: number; message: string }> = [];
-  const displayName = importName?.trim() || file.originalname;
+  let failedRows = errors.length;
+  const seenPhones = new Set<string>();
+  const displayName = importName?.trim() || source.originalname;
 
   const history = await prisma.importHistory.create({
     data: {
       importName: displayName,
-      filename: file.originalname,
+      filename: source.originalname,
       totalRows: rows.length,
       successRows: 0,
       duplicateRows: 0,
@@ -131,9 +245,15 @@ export const importCustomersFromExcel = async (file: Express.Multer.File, create
     }
   });
 
-  for (const { rowNumber, record } of rows) {
+  for (const { sheetName, rowNumber, row } of parsedRows) {
     try {
-      const row = mapRecord(record);
+      if (seenPhones.has(row.phone)) {
+        duplicateRows += 1;
+        continue;
+      }
+
+      seenPhones.add(row.phone);
+
       const existingCustomer = await prisma.customer.findFirst({
         where: { phone: row.phone }
       });
@@ -162,6 +282,7 @@ export const importCustomersFromExcel = async (file: Express.Multer.File, create
 
       failedRows += 1;
       errors.push({
+        sheet: sheetName,
         row: rowNumber,
         message: error instanceof Error ? error.message : "Lỗi nhập dữ liệu không xác định"
       });
@@ -182,3 +303,13 @@ export const importCustomersFromExcel = async (file: Express.Multer.File, create
     errors: errors.slice(0, 20)
   };
 };
+
+export const importCustomersFromExcel = async (file: Express.Multer.File, createdBy: string, importName?: string) =>
+  importCustomersFromSpreadsheet(
+    {
+      buffer: file.buffer,
+      originalname: file.originalname
+    },
+    createdBy,
+    importName
+  );

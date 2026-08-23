@@ -10,7 +10,12 @@ import { HttpError, notFound } from "../../lib/http-error.js";
 import { saveCallHistoryImage } from "../../lib/supabase-storage.js";
 import { requireAuth, requireRole } from "../../middleware/auth.js";
 import { validate } from "../../middleware/validate.js";
-import { importCustomersFromExcel } from "./import.service.js";
+import {
+  importCustomersFromExcel,
+  importCustomersFromSpreadsheet,
+  previewCustomersFromExcel,
+  previewCustomersFromSpreadsheet
+} from "./import.service.js";
 import {
   addInteractionSchema,
   customerIdParams,
@@ -34,9 +39,108 @@ const importRequestBodySchema = z.object({
   importName: z.string().trim().min(1, "Cần đặt tên lô dữ liệu").max(120, "Tên lô dữ liệu quá dài")
 });
 
+const importLinkRequestBodySchema = importRequestBodySchema.extend({
+  sourceUrl: z.string().trim().url("Link Google Drive/Sheet không hợp lệ")
+});
+
+const importLinkPreviewBodySchema = z.object({
+  sourceUrl: z.string().trim().url("Link Google Drive/Sheet không hợp lệ")
+});
+
 export const customerRouter = Router();
 
 customerRouter.use(requireAuth);
+
+const MAX_LINK_IMPORT_BYTES = 20 * 1024 * 1024;
+
+const localDateKey = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const spreadsheetDownloadFromUrl = (rawUrl: string) => {
+  const url = new URL(rawUrl);
+  const hostname = url.hostname.toLowerCase();
+  const sheetMatch = url.pathname.match(/\/spreadsheets\/d\/([^/]+)/);
+  const driveFileMatch = url.pathname.match(/\/file\/d\/([^/]+)/);
+  const openId = url.searchParams.get("id");
+
+  if (hostname.includes("docs.google.com") && sheetMatch?.[1]) {
+    return {
+      url: `https://docs.google.com/spreadsheets/d/${sheetMatch[1]}/export?format=xlsx`,
+      filename: `google-sheet-${sheetMatch[1]}.xlsx`
+    };
+  }
+
+  if (hostname.includes("drive.google.com") && driveFileMatch?.[1]) {
+    return {
+      url: `https://drive.google.com/uc?export=download&id=${driveFileMatch[1]}`,
+      filename: `google-drive-${driveFileMatch[1]}.xlsx`
+    };
+  }
+
+  if (hostname.includes("drive.google.com") && openId) {
+    return {
+      url: `https://drive.google.com/uc?export=download&id=${openId}`,
+      filename: `google-drive-${openId}.xlsx`
+    };
+  }
+
+  const pathnameFile = decodeURIComponent(url.pathname.split("/").filter(Boolean).pop() || "");
+  return {
+    url: rawUrl,
+    filename: pathnameFile.match(/\.xlsx$/i) ? pathnameFile : "du-lieu-tu-link.xlsx"
+  };
+};
+
+const downloadSpreadsheetFromLink = async (rawUrl: string) => {
+  const source = spreadsheetDownloadFromUrl(rawUrl);
+  let response: Response;
+
+  try {
+    response = await fetch(source.url, { redirect: "follow" });
+  } catch {
+    throw new HttpError(
+      422,
+      "Máy chủ không tải được file từ Google Drive/Sheet. Kiểm tra kết nối mạng của server và quyền xem bằng liên kết.",
+      "INVALID_DRIVE_LINK"
+    );
+  }
+
+  if (!response.ok) {
+    throw new HttpError(422, "Không tải được dữ liệu từ link. Kiểm tra lại quyền xem file.", "INVALID_DRIVE_LINK");
+  }
+
+  const contentLength = Number(response.headers.get("content-length") || "0");
+  if (contentLength > MAX_LINK_IMPORT_BYTES) {
+    throw new HttpError(422, "File từ link quá lớn, tối đa 20MB", "FILE_TOO_LARGE");
+  }
+
+  const contentType = response.headers.get("content-type") || "";
+  const arrayBuffer = await response.arrayBuffer();
+
+  if (arrayBuffer.byteLength > MAX_LINK_IMPORT_BYTES) {
+    throw new HttpError(422, "File từ link quá lớn, tối đa 20MB", "FILE_TOO_LARGE");
+  }
+
+  const buffer = Buffer.from(arrayBuffer);
+  const isXlsx = buffer.subarray(0, 2).toString("utf8") === "PK";
+
+  if (!isXlsx || contentType.includes("text/html")) {
+    throw new HttpError(
+      422,
+      "Link chưa cho phép tải file .xlsx. Hãy bật quyền xem cho bất kỳ ai có liên kết hoặc gửi link Google Sheet hợp lệ.",
+      "INVALID_DRIVE_LINK"
+    );
+  }
+
+  return {
+    buffer,
+    originalname: source.filename
+  };
+};
 
 const ensureCustomerAccess = async (customerId: string, userId: string, role: UserRole) => {
   const customer = await prisma.customer.findUnique({
@@ -273,13 +377,46 @@ customerRouter.get(
   })
 );
 
+customerRouter.delete(
+  "/imports/:id",
+  requireRole(UserRole.ADMIN),
+  validate({ params: z.object({ id: z.string().uuid() }) }),
+  asyncHandler(async (req, res) => {
+    const existing = await prisma.importHistory.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, importName: true, filename: true }
+    });
+
+    if (!existing) {
+      throw notFound("Resource");
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const customers = await tx.customer.deleteMany({
+        where: { importId: existing.id }
+      });
+      await tx.importHistory.delete({
+        where: { id: existing.id }
+      });
+
+      return customers;
+    });
+
+    res.json({
+      deletedImportId: existing.id,
+      deletedImportName: existing.importName || existing.filename,
+      deletedCustomers: result.count
+    });
+  })
+);
+
 customerRouter.get(
   "/receiving-summary",
   requireRole(UserRole.STAFF),
   asyncHandler(async (req, res) => {
     const todayStart = startOfToday();
     const tomorrowStart = startOfTomorrow();
-    const [receivedToday, availableCustomers] = await Promise.all([
+    const [receivedToday, availableCustomers, target] = await Promise.all([
       prisma.customerOwnership.count({
         where: {
           userId: req.user!.id,
@@ -289,13 +426,21 @@ customerRouter.get(
           }
         }
       }),
-      prisma.customer.count({ where: { ownerId: null } })
+      prisma.customer.count({ where: { ownerId: null } }),
+      prisma.workKpiTarget.findUnique({
+        where: {
+          periodMode_periodKey: {
+            periodMode: "day",
+            periodKey: localDateKey(todayStart)
+          }
+        }
+      })
     ]);
 
     res.json({
       date: todayStart.toISOString(),
       receivedToday,
-      dailyTarget: env.STAFF_DAILY_CUSTOMER_TARGET,
+      dailyTarget: target?.targetCustomers ?? env.STAFF_DAILY_CUSTOMER_TARGET,
       availableCustomers
     });
   })
@@ -349,6 +494,31 @@ customerRouter.get(
 );
 
 customerRouter.post(
+  "/import-preview",
+  requireRole(UserRole.ADMIN),
+  upload.single("file"),
+  asyncHandler(async (req, res) => {
+    if (!req.file) {
+      throw new HttpError(422, "Cần chọn tệp dữ liệu", "FILE_REQUIRED");
+    }
+
+    const result = await previewCustomersFromExcel(req.file);
+    res.json(result);
+  })
+);
+
+customerRouter.post(
+  "/import-link-preview",
+  requireRole(UserRole.ADMIN),
+  validate({ body: importLinkPreviewBodySchema }),
+  asyncHandler(async (req, res) => {
+    const source = await downloadSpreadsheetFromLink(req.body.sourceUrl);
+    const result = await previewCustomersFromSpreadsheet(source);
+    res.json(result);
+  })
+);
+
+customerRouter.post(
   "/import",
   requireRole(UserRole.ADMIN),
   upload.single("file"),
@@ -359,6 +529,17 @@ customerRouter.post(
 
     const body = importRequestBodySchema.parse(req.body);
     const result = await importCustomersFromExcel(req.file, req.user!.id, body.importName);
+    res.status(201).json(result);
+  })
+);
+
+customerRouter.post(
+  "/import-link",
+  requireRole(UserRole.ADMIN),
+  validate({ body: importLinkRequestBodySchema }),
+  asyncHandler(async (req, res) => {
+    const source = await downloadSpreadsheetFromLink(req.body.sourceUrl);
+    const result = await importCustomersFromSpreadsheet(source, req.user!.id, req.body.importName);
     res.status(201).json(result);
   })
 );

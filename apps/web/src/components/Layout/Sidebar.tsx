@@ -37,17 +37,17 @@ export function Sidebar({ user, pathname }: { user: SessionUser; pathname: strin
   const nav = navigationFor(user);
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-20 hidden w-[260px] border-r border-cyan-300/[0.15] bg-[#020817]/70 shadow-glow backdrop-blur-2xl lg:block">
+    <aside className="app-sidebar fixed inset-y-0 left-0 z-20 hidden w-[260px] border-r border-cyan-300/[0.15] bg-[#020817]/70 shadow-glow backdrop-blur-2xl lg:block">
       <div className="absolute inset-y-10 -right-px w-px bg-gradient-to-b from-transparent via-cyan-300/60 to-transparent" />
       <div className="flex h-20 items-center border-b border-cyan-300/10 px-5">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="relative grid h-12 w-12 shrink-0 place-items-center rounded-lg border border-cyan-300/[0.35] bg-cyan-300/10 text-sm font-black text-cyan-50 shadow-neon">
-            CSKH
+          <div className="relative grid h-12 w-20 shrink-0 place-items-center rounded-lg border border-cyan-300/[0.35] bg-cyan-300/10 text-[11px] font-black text-cyan-50 shadow-neon">
+            MSCILABS
             <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-success shadow-neon" />
           </div>
           <div className="min-w-0">
-            <div className="truncate text-base font-semibold text-white">Quản lý CSKH</div>
-            <div className="text-xs text-cyan-100/[0.65]">Trung tâm dữ liệu CSKH</div>
+            <div className="truncate text-base font-semibold text-white">Quản lý MSCILABS</div>
+            <div className="text-xs text-cyan-100/[0.65]">Trung tâm dữ liệu MSCILABS</div>
           </div>
         </div>
       </div>
@@ -74,7 +74,7 @@ export function Sidebar({ user, pathname }: { user: SessionUser; pathname: strin
         })}
       </nav>
 
-      <div className="absolute inset-x-3 bottom-4 rounded-lg border border-cyan-300/[0.15] bg-white/[0.06] p-3 text-xs leading-5 text-slate-300 shadow-glow backdrop-blur-xl">
+      <div className="app-sidebar-profile absolute inset-x-3 bottom-4 rounded-lg border border-cyan-300/[0.15] bg-white/[0.06] p-3 text-xs leading-5 text-slate-300 shadow-glow backdrop-blur-xl">
         <div className="mb-3 flex items-center gap-3">
           <Avatar name={user.name} />
           <div className="min-w-0">

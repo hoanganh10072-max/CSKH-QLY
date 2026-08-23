@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { UserRole, UserStatus } from "@prisma/client";
-import type { WeeklyWorkSchedule } from "@prisma/client";
+import { ConsultationCallStatus, CustomerStatus, UserRole, UserStatus } from "@prisma/client";
+import type { DailyWorkKpi, WeeklyWorkSchedule } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../../config/prisma.js";
 import { asyncHandler } from "../../lib/async-handler.js";
@@ -60,6 +60,7 @@ const updateAccountSchema = z.object({
 });
 
 const userIdParams = z.object({ id: z.string().uuid() });
+const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
 const weekStartRegex = /^\d{4}-\d{2}-\d{2}$/;
 const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -113,9 +114,84 @@ const weeklyScheduleSchema = z.object({
   days: scheduleDaysSchema
 });
 
+const kpiPeriodModeSchema = z.enum(["day", "month", "year"]);
+const monthRegex = /^\d{4}-\d{2}$/;
+const yearRegex = /^\d{4}$/;
+
+const kpiPeriodSchema = z
+  .object({
+    mode: kpiPeriodModeSchema.default("day"),
+    period: z.string().optional(),
+    date: z.string().optional()
+  })
+  .transform((value) => ({
+    mode: value.mode,
+    period: value.period || value.date || ""
+  }))
+  .superRefine((value, context) => {
+    const valid =
+      (value.mode === "day" && dateRegex.test(value.period)) ||
+      (value.mode === "month" && monthRegex.test(value.period)) ||
+      (value.mode === "year" && yearRegex.test(value.period));
+
+    if (!valid) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["period"], message: "Kỳ KPI không hợp lệ" });
+    }
+  });
+
+const kpiTargetSchema = z.object({
+  mode: kpiPeriodModeSchema,
+  period: z.string().min(4),
+  targetCustomers: z.coerce.number().int().min(0).max(100000)
+}).superRefine((value, context) => {
+  const valid =
+    (value.mode === "day" && dateRegex.test(value.period)) ||
+    (value.mode === "month" && monthRegex.test(value.period)) ||
+    (value.mode === "year" && yearRegex.test(value.period));
+
+  if (!valid) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["period"], message: "Kỳ KPI không hợp lệ" });
+  }
+});
+
+const dailyWorkKpiSchema = z.object({
+  workDate: z.string().regex(dateRegex, "Ngày KPI không hợp lệ"),
+  targetCustomers: z.coerce.number().int().min(0).max(100000),
+  receivedCustomers: z.coerce.number().int().min(0).max(100000),
+  calledCustomers: z.coerce.number().int().min(0).max(100000),
+  successfulCalls: z.coerce.number().int().min(0).max(100000),
+  interestedCustomers: z.coerce.number().int().min(0).max(100000),
+  revenue: z.coerce.number().min(0).max(999999999999),
+  note: z.string().trim().max(500).optional().nullable()
+});
+
 type WeeklyScheduleBody = z.infer<typeof weeklyScheduleSchema>;
+type KpiPeriod = z.infer<typeof kpiPeriodSchema>;
 
 const parseWeekStart = (value: string) => new Date(`${value}T00:00:00.000Z`);
+const parseWorkDate = (value: string) => new Date(`${value}T00:00:00.000Z`);
+const kpiRangeFromPeriod = ({ mode, period }: KpiPeriod) => {
+  if (mode === "year") {
+    const year = Number(period);
+    return {
+      start: new Date(Date.UTC(year, 0, 1)),
+      end: new Date(Date.UTC(year + 1, 0, 1))
+    };
+  }
+
+  if (mode === "month") {
+    const [year, month] = period.split("-").map(Number);
+    return {
+      start: new Date(Date.UTC(year, month - 1, 1)),
+      end: new Date(Date.UTC(year, month, 1))
+    };
+  }
+
+  const start = parseWorkDate(period);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 1);
+  return { start, end };
+};
 
 const duplicateAccountWhere = (username: string, email: string, excludedUserId?: string) => ({
   id: excludedUserId ? { not: excludedUserId } : undefined,
@@ -163,6 +239,20 @@ const serializeSchedule = (schedule: WeeklyWorkSchedule) => ({
     sunday: scheduleDay(schedule.sundayStart, schedule.sundayEnd)
   },
   updatedAt: schedule.updatedAt
+});
+
+const serializeDailyWorkKpi = (kpi: DailyWorkKpi) => ({
+  id: kpi.id,
+  userId: kpi.userId,
+  workDate: kpi.workDate.toISOString().slice(0, 10),
+  targetCustomers: kpi.targetCustomers,
+  receivedCustomers: kpi.receivedCustomers,
+  calledCustomers: kpi.calledCustomers,
+  successfulCalls: kpi.successfulCalls,
+  interestedCustomers: kpi.interestedCustomers,
+  revenue: Number(kpi.revenue || 0),
+  note: kpi.note || "",
+  updatedAt: kpi.updatedAt
 });
 
 export const userRouter = Router();
@@ -247,6 +337,8 @@ userRouter.post(
     const user = await prisma.user.create({
       data: {
         ...data,
+        role: UserRole.STAFF,
+        status: UserStatus.ACTIVE,
         phone: data.phone || null,
         passwordHash: await hashPassword(password)
       },
@@ -442,6 +534,157 @@ userRouter.delete(
     });
 
     res.json({ user });
+  })
+);
+
+userRouter.get(
+  "/work-kpis",
+  validate({ query: kpiPeriodSchema }),
+  asyncHandler(async (req, res) => {
+    const query = req.query as unknown as KpiPeriod;
+    const { start, end } = kpiRangeFromPeriod(query);
+    const [target, receivedRows, calledRows, successfulRows, interestedRows, revenueRows] = await Promise.all([
+      prisma.workKpiTarget.findUnique({
+        where: {
+          periodMode_periodKey: {
+            periodMode: query.mode,
+            periodKey: query.period
+          }
+        }
+      }),
+      prisma.customerOwnership.groupBy({
+        by: ["userId"],
+        where: { assignedDate: { gte: start, lt: end } },
+        _count: { _all: true }
+      }),
+      prisma.customerInteraction.groupBy({
+        by: ["userId"],
+        where: { createdAt: { gte: start, lt: end }, callStatus: { not: null } },
+        _count: { _all: true }
+      }),
+      prisma.customerInteraction.groupBy({
+        by: ["userId"],
+        where: { createdAt: { gte: start, lt: end }, callStatus: ConsultationCallStatus.CALLED },
+        _count: { _all: true }
+      }),
+      prisma.customer.groupBy({
+        by: ["ownerId"],
+        where: {
+          ownerId: { not: null },
+          status: CustomerStatus.INTERESTED,
+          updatedAt: { gte: start, lt: end }
+        },
+        _count: { _all: true }
+      }),
+      prisma.customer.groupBy({
+        by: ["ownerId"],
+        where: {
+          ownerId: { not: null },
+          updatedAt: { gte: start, lt: end }
+        },
+        _sum: { revenue: true }
+      })
+    ]);
+
+    const receivedByUser = new Map(receivedRows.map((row) => [row.userId, row._count._all]));
+    const calledByUser = new Map(calledRows.map((row) => [row.userId, row._count._all]));
+    const successfulByUser = new Map(successfulRows.map((row) => [row.userId, row._count._all]));
+    const interestedByUser = new Map(interestedRows.map((row) => [row.ownerId, row._count._all]));
+    const revenueByUser = new Map(revenueRows.map((row) => [row.ownerId, Number(row._sum.revenue || 0)]));
+
+    const userIds = new Set<string>([
+      ...receivedByUser.keys(),
+      ...calledByUser.keys(),
+      ...successfulByUser.keys(),
+      ...(Array.from(interestedByUser.keys()).filter(Boolean) as string[]),
+      ...(Array.from(revenueByUser.keys()).filter(Boolean) as string[])
+    ]);
+
+    res.json({
+      mode: query.mode,
+      period: query.period,
+      targetCustomers: target?.targetCustomers || 0,
+      items: Array.from(userIds).map((userId) => ({
+        userId,
+        receivedCustomers: receivedByUser.get(userId) || 0,
+        calledCustomers: calledByUser.get(userId) || 0,
+        successfulCalls: successfulByUser.get(userId) || 0,
+        interestedCustomers: interestedByUser.get(userId) || 0,
+        revenue: revenueByUser.get(userId) || 0
+      }))
+    });
+  })
+);
+
+userRouter.put(
+  "/work-kpis/target",
+  validate({ body: kpiTargetSchema }),
+  asyncHandler(async (req, res) => {
+    const target = await prisma.workKpiTarget.upsert({
+      where: {
+        periodMode_periodKey: {
+          periodMode: req.body.mode,
+          periodKey: req.body.period
+        }
+      },
+      update: { targetCustomers: req.body.targetCustomers },
+      create: {
+        periodMode: req.body.mode,
+        periodKey: req.body.period,
+        targetCustomers: req.body.targetCustomers
+      }
+    });
+
+    res.json({
+      target: {
+        mode: target.periodMode,
+        period: target.periodKey,
+        targetCustomers: target.targetCustomers
+      }
+    });
+  })
+);
+
+userRouter.put(
+  "/:id/work-kpis",
+  validate({ params: userIdParams, body: dailyWorkKpiSchema }),
+  asyncHandler(async (req, res) => {
+    const user = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, deletedAt: true }
+    });
+
+    if (!user || user.deletedAt) {
+      throw notFound("User");
+    }
+
+    const workDate = parseWorkDate(req.body.workDate);
+    const kpiPayload = {
+      targetCustomers: req.body.targetCustomers,
+      receivedCustomers: req.body.receivedCustomers,
+      calledCustomers: req.body.calledCustomers,
+      successfulCalls: req.body.successfulCalls,
+      interestedCustomers: req.body.interestedCustomers,
+      revenue: req.body.revenue,
+      note: req.body.note || null
+    };
+
+    const item = await prisma.dailyWorkKpi.upsert({
+      where: {
+        userId_workDate: {
+          userId: req.params.id,
+          workDate
+        }
+      },
+      update: kpiPayload,
+      create: {
+        userId: req.params.id,
+        workDate,
+        ...kpiPayload
+      }
+    });
+
+    res.json({ item: serializeDailyWorkKpi(item) });
   })
 );
 
