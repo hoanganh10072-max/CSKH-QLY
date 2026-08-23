@@ -13,5 +13,5 @@
     "resolveJsonModule": true,
     "types": ["node", "express"]
   },
-  "include": ["src", "prisma/seed.ts"]
+  "include": ["src", "prisma/seed.ts", "prisma/seed-admin.ts"]
 }
