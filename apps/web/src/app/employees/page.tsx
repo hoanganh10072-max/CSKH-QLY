@@ -258,7 +258,22 @@ export default function EmployeesPage() {
     setError("");
     setMessage("");
     try {
-      await apiFetch("/users", { method: "POST", json: { ...createForm, role: "STAFF" } });
+      const data = await apiFetch<{ user: Employee }>("/users", { method: "POST", json: { ...createForm, role: "STAFF" } });
+      const createdEmployee: Employee = {
+        ...data.user,
+        revenue: Number(data.user.revenue || 0),
+        _count: data.user._count || {
+          ownedCustomers: 0,
+          interactions: 0,
+          tasks: 0
+        }
+      };
+
+      setEmployees((current) => [
+        createdEmployee,
+        ...current.filter((employee) => employee.id !== createdEmployee.id)
+      ]);
+      setSelectedId(createdEmployee.id);
       setCreateForm({ name: "", username: "", email: "", password: "1", role: "STAFF" });
       setMessage("Đã tạo tài khoản nhân viên.");
       await load();

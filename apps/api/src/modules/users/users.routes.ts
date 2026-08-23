@@ -367,11 +367,18 @@ userRouter.post(
         bankAccountHolder: true,
         role: true,
         status: true,
-        createdAt: true
+        createdAt: true,
+        _count: {
+          select: {
+            ownedCustomers: true,
+            interactions: true,
+            tasks: true
+          }
+        }
       }
     });
 
-    res.status(201).json({ user });
+    res.status(201).json({ user: { ...user, revenue: 0 } });
   })
 );
 
