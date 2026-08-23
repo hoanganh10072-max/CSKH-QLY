@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: mscilabs-api
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: npm install && npm run prisma:generate -w @cskh/api && npm run build -w @cskh/api
+    preDeployCommand: npx prisma migrate deploy --schema apps/api/prisma/schema.prisma && npm run seed:admin -w @cskh/api
+    startCommand: npm run start -w @cskh/api
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mscilabs-postgres
+          property: connectionString
+      - key: DIRECT_URL
+        fromDatabase:
+          name: mscilabs-postgres
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CLIENT_ORIGIN
+        value: https://mscilabs-web.onrender.com
+      - key: SUPABASE_STORAGE_ENABLED
+        value: false
+      - key: SUPABASE_CALL_IMAGES_BUCKET
+        value: mscilabs-call-images
+
+  - type: web
+    name: mscilabs-web
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: npm install && npm run build -w @cskh/web
+    startCommand: npm exec -w @cskh/web -- next start -p $PORT
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        value: https://mscilabs-api.onrender.com
+
+databases:
+  - name: mscilabs-postgres
+    plan: free

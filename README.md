@@ -1,6 +1,6 @@
-# CSKH CRM
+# MSCILABS CRM
 
-Web quản lý dữ liệu khách hàng cho đội CSKH/Sales.
+Web quản lý dữ liệu khách hàng cho đội MSCILABS.
 
 ## Hướng backend
 
@@ -20,10 +20,11 @@ Cách này giúp dùng Supabase làm hạ tầng backend nhanh, nhưng không b�
 - Một khách hàng chỉ có một nhân viên phụ trách tại một thời điểm.
 - Khách đã được nhận sẽ biến mất khỏi danh sách dữ liệu chờ nhận của nhân viên khác.
 
-## Tài khoản test
+## Tài khoản mặc định
 
-- Quản trị viên: `admin` / `1`
-- Nhân viên: `NV` / `1`
+- Quản trị viên: `admin` / `1007`
+
+Quản trị viên tạo tài khoản nhân viên trực tiếp trong trang Nhân viên.
 
 ## Chạy local bằng PostgreSQL local
 
@@ -45,13 +46,15 @@ npm install
 docker compose up -d postgres
 ```
 
-4. Tạo Prisma client, chạy migration và seed tài khoản test:
+4. Tạo Prisma client, chạy migration và seed tài khoản local:
 
 ```bash
 npm run prisma:generate
 npm run prisma:migrate
 npm run seed
 ```
+
+Lưu ý: `npm run seed` sẽ dọn sạch dữ liệu hiện có rồi tạo lại tài khoản admin. Chỉ dùng cho local hoặc database mới tinh.
 
 5. Chạy app:
 
@@ -81,6 +84,45 @@ npm run prisma:generate
 npm run prisma:migrate
 npm run seed
 ```
+
+Với production đã có dữ liệu thật, không chạy `npm run seed`. Nếu chỉ cần tạo admin mà không xóa dữ liệu, chạy:
+
+```bash
+npm run seed:admin -w @cskh/api
+```
+
+## Triển khai production bằng Render Blueprint
+
+Repo đã có file `render.yaml` để tạo tự động:
+
+- `mscilabs-web`: giao diện Next.js
+- `mscilabs-api`: API Express
+- `mscilabs-postgres`: PostgreSQL
+
+Trên Render, tạo Blueprint từ repo GitHub này. Render sẽ đọc `render.yaml`, chạy migration Prisma và tạo admin mặc định bằng seed an toàn.
+
+Các URL tạm sau khi tạo:
+
+- Web: `https://mscilabs-web.onrender.com`
+- API: `https://mscilabs-api.onrender.com`
+
+Khi gắn tên miền riêng:
+
+1. Gắn domain chính vào service `mscilabs-web`, ví dụ `your-domain.com` và `www.your-domain.com`.
+2. Gắn subdomain API vào service `mscilabs-api`, ví dụ `api.your-domain.com`.
+3. Cập nhật env của `mscilabs-api`:
+
+```env
+CLIENT_ORIGIN="https://your-domain.com,https://www.your-domain.com,https://mscilabs-web.onrender.com"
+```
+
+4. Cập nhật env của `mscilabs-web`:
+
+```env
+NEXT_PUBLIC_API_URL="https://api.your-domain.com"
+```
+
+5. Redeploy lại web và API sau khi đổi env.
 
 ## Lưu ảnh cuộc gọi lên Supabase Storage
 

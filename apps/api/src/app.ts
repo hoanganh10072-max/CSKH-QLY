@@ -13,10 +13,21 @@ import { userRouter } from "./modules/users/users.routes.js";
 
 export const app = express();
 
+const allowedOrigins = env.CLIENT_ORIGIN.split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 app.use(helmet());
 app.use(
   cors({
-    origin: env.CLIENT_ORIGIN,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error("Nguồn truy cập không được phép bởi CORS"));
+    },
     credentials: true
   })
 );
