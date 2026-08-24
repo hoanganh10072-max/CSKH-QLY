@@ -276,7 +276,6 @@ export default function EmployeesPage() {
       setSelectedId(createdEmployee.id);
       setCreateForm({ name: "", username: "", email: "", password: "1", role: "STAFF" });
       setMessage("Đã tạo tài khoản nhân viên.");
-      await load();
     } catch (caught) {
       setError(describeError(caught, "Không thể tạo nhân viên"));
     }
@@ -378,7 +377,7 @@ export default function EmployeesPage() {
             onSelectEmployee={setSelectedId}
           />
 
-          <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_520px]">
+          <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_400px]">
             <div className="space-y-5">
               <GlassCard>
                 <div className="flex items-center gap-2 border-b border-cyan-300/10 px-4 py-3">
@@ -423,7 +422,7 @@ export default function EmployeesPage() {
                             <button
                               type="button"
                               onClick={() => viewEmployeeInfo(employee)}
-                              className="inline-flex h-9 items-center gap-2 rounded-lg border border-cyan-300/[0.35] bg-cyan-300/[0.10] px-3 text-sm font-semibold text-cyan-50 transition hover:bg-cyan-300/[0.16] focus-ring"
+                              className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-cyan-300/[0.35] bg-cyan-300/[0.10] px-3 py-2 text-sm font-semibold leading-tight text-cyan-50 transition hover:bg-cyan-300/[0.16] focus-ring"
                             >
                               <Eye className="h-4 w-4" aria-hidden="true" />
                               Xem thông tin nhân viên
@@ -433,7 +432,7 @@ export default function EmployeesPage() {
                               onClick={() => deleteEmployee(employee)}
                               disabled={deletingId === employee.id || employee.id === user.id}
                               title={employee.id === user.id ? "Không thể xóa tài khoản đang đăng nhập" : undefined}
-                              className="inline-flex h-9 items-center gap-2 rounded-lg border border-rose-300/[0.35] bg-rose-500/[0.10] px-3 text-sm font-semibold text-rose-50 transition hover:bg-rose-500/[0.16] disabled:cursor-not-allowed disabled:opacity-50 focus-ring"
+                              className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-rose-300/[0.35] bg-rose-500/[0.10] px-3 py-2 text-sm font-semibold leading-tight text-rose-50 transition hover:bg-rose-500/[0.16] disabled:cursor-not-allowed disabled:opacity-50 focus-ring"
                             >
                               <Trash2 className="h-4 w-4" aria-hidden="true" />
                               {deletingId === employee.id ? "Đang xóa..." : "Xóa tài khoản"}
