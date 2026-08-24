@@ -14,6 +14,7 @@ import { NeonButton } from "@/components/UI/NeonButton";
 import { Select } from "@/components/UI/Select";
 import { GlassTable, TableBody, TableHead, TableRow, Td, Th } from "@/components/UI/Table";
 import { apiFetch, describeError, getStoredUser } from "@/lib/api";
+import { notifyDataChanged, useLiveRefresh } from "@/lib/live-sync";
 import type { Customer, CustomerStatus, SessionUser } from "@/lib/types";
 import { customerStatuses } from "@/lib/types";
 
@@ -92,11 +93,11 @@ export default function CustomersPage() {
     return params.toString();
   };
 
-  const load = async () => {
+  const load = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!user) return;
 
-    setLoading(true);
-    setError("");
+    if (!silent) setLoading(true);
+    if (!silent) setError("");
     try {
       if (user.role === "STAFF") {
         const [availableData, summaryData] = await Promise.all([
@@ -112,9 +113,9 @@ export default function CustomersPage() {
         setPagination(data.pagination);
       }
     } catch (caught) {
-      setError(describeError(caught, "Không tải được danh sách khách hàng"));
+      if (!silent) setError(describeError(caught, "Không tải được danh sách khách hàng"));
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -125,6 +126,12 @@ export default function CustomersPage() {
   useEffect(() => {
     load();
   }, [query, user?.role]);
+
+  useLiveRefresh(() => load({ silent: true }), {
+    enabled: Boolean(user),
+    intervalMs: 10000,
+    areas: ["imports", "customers", "interactions"]
+  });
 
   const submitSearch = (event: FormEvent) => {
     event.preventDefault();
@@ -139,8 +146,23 @@ export default function CustomersPage() {
     try {
       const data = await apiFetch<{ customer: Customer }>(`/customers/${customerId}/claim`, { method: "POST" });
       const ownerName = data.customer.owner?.name || "nhân viên hiện tại";
+      setCustomers((current) => current.filter((customer) => customer.id !== customerId));
+      setPagination((current) => {
+        if (!current) return current;
+        const total = Math.max(current.total - 1, 0);
+        return { ...current, total, totalPages: Math.max(Math.ceil(total / current.pageSize), 1) };
+      });
+      setReceivingSummary((current) => current
+        ? {
+          ...current,
+          receivedToday: current.receivedToday + 1,
+          availableCustomers: Math.max(current.availableCustomers - 1, 0)
+        }
+        : current
+      );
       setMessage(`Đã nhận chăm sóc: ${ownerName}. Khách hàng đã chuyển sang trang Khách hàng của tôi.`);
-      await load();
+      notifyDataChanged({ area: "customers", source: "claim-customer" });
+      void load({ silent: true });
     } catch (caught) {
       setError(describeError(caught, "Không thể nhận chăm sóc"));
     } finally {
@@ -220,7 +242,7 @@ export default function CustomersPage() {
           loading={loading}
           customers={customers}
           emptyText="Không có dữ liệu nào đang chờ nhận."
-          rightAction={<NeonButton type="button" variant="secondary" onClick={load} className="h-9"><RefreshCcw className="h-4 w-4" aria-hidden="true" />Tải lại</NeonButton>}
+          rightAction={<NeonButton type="button" variant="secondary" onClick={() => load()} className="h-9"><RefreshCcw className="h-4 w-4" aria-hidden="true" />Tải lại</NeonButton>}
           columns={
             <>
               <Th>Tên công ty</Th>
@@ -269,7 +291,7 @@ export default function CustomersPage() {
           loading={loading}
           customers={customers}
           emptyText="Không có khách hàng phù hợp."
-          rightAction={<NeonButton type="button" variant="secondary" onClick={load} className="h-9"><RefreshCcw className="h-4 w-4" aria-hidden="true" />Tải lại</NeonButton>}
+          rightAction={<NeonButton type="button" variant="secondary" onClick={() => load()} className="h-9"><RefreshCcw className="h-4 w-4" aria-hidden="true" />Tải lại</NeonButton>}
           columns={
             <>
               <Th>Khách hàng</Th>
@@ -423,7 +445,7 @@ function CustomerSection({
           <tr>{columns}</tr>
         </TableHead>
         <TableBody>
-          {loading ? (
+          {loading && !customers.length ? (
             <tr><Td className="py-6 text-slate-400" colSpan={colSpan}>Đang tải dữ liệu...</Td></tr>
           ) : customers.length ? (
             customers.map((customer) => <TableRow key={customer.id}>{renderRow(customer)}</TableRow>)

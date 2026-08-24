@@ -11,6 +11,7 @@ import { Avatar } from "@/components/UI/Avatar";
 import { GlassCard } from "@/components/UI/GlassCard";
 import { GlassTable, TableBody, TableHead, TableRow, Td, Th } from "@/components/UI/Table";
 import { apiFetch, describeError, getStoredUser } from "@/lib/api";
+import { useLiveRefresh } from "@/lib/live-sync";
 import type { SessionUser } from "@/lib/types";
 
 type ReportsResponse = {
@@ -45,15 +46,29 @@ export default function ReportsPage() {
   const [data, setData] = useState<ReportsResponse | null>(null);
   const [error, setError] = useState("");
 
+  const loadReports = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) setError("");
+    try {
+      const nextData = await apiFetch<ReportsResponse>("/dashboard");
+      setData(nextData);
+    } catch (caught) {
+      if (!silent) setError(describeError(caught, "Không tải được báo cáo"));
+    }
+  };
+
   useEffect(() => {
     const stored = getStoredUser();
     setUser(stored);
     if (stored?.role === "ADMIN") {
-      apiFetch<ReportsResponse>("/dashboard")
-        .then(setData)
-        .catch((caught) => setError(describeError(caught, "Không tải được báo cáo")));
+      loadReports();
     }
   }, []);
+
+  useLiveRefresh(() => loadReports({ silent: true }), {
+    enabled: user?.role === "ADMIN",
+    intervalMs: 10000,
+    areas: ["imports", "customers", "interactions", "users", "tasks", "dashboard"]
+  });
 
   return (
     <AppShell>

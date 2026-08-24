@@ -14,6 +14,7 @@ import { Modal } from "@/components/UI/Modal";
 import { NeonButton } from "@/components/UI/NeonButton";
 import { GlassTable, TableBody, TableHead, TableRow, Td, Th } from "@/components/UI/Table";
 import { apiFetch, describeError, getStoredUser } from "@/lib/api";
+import { notifyDataChanged, useLiveRefresh } from "@/lib/live-sync";
 import type { ConsultationCallStatus, CustomerStatus, MessageStatus, SessionUser } from "@/lib/types";
 
 type ImportResponse = {
@@ -140,16 +141,18 @@ export default function ImportPage() {
     setPreviewSignature("");
   };
 
-  const loadProgress = async () => {
-    setLoadingProgress(true);
-    setError("");
+  const loadProgress = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) setLoadingProgress(true);
+    if (!silent) setError("");
     try {
       const data = await apiFetch<ImportProgressResponse>("/customers/imports");
       setImports(data.imports);
+      return data.imports;
     } catch (caught) {
-      setError(describeError(caught, "Không tải được tiến trình dữ liệu"));
+      if (!silent) setError(describeError(caught, "Không tải được tiến trình dữ liệu"));
+      return [];
     } finally {
-      setLoadingProgress(false);
+      if (!silent) setLoadingProgress(false);
     }
   };
 
@@ -160,6 +163,12 @@ export default function ImportPage() {
       loadProgress();
     }
   }, []);
+
+  useLiveRefresh(async () => { await loadProgress({ silent: true }); }, {
+    enabled: user?.role === "ADMIN",
+    intervalMs: 10000,
+    areas: ["imports", "customers", "interactions"]
+  });
 
   const deleteImportBatch = async (item: ImportBatch) => {
     const confirmed = window.confirm(`Xóa lô "${item.importName}" và toàn bộ ${item.totalPhones} khách hàng thuộc lô này?`);
@@ -172,8 +181,10 @@ export default function ImportPage() {
       const data = await apiFetch<{ deletedImportName: string; deletedCustomers: number }>(`/customers/imports/${item.id}`, {
         method: "DELETE"
       });
+      setImports((current) => current.filter((importItem) => importItem.id !== item.id));
       setMessage(`Đã xóa lô "${data.deletedImportName}" và ${data.deletedCustomers} khách hàng thuộc lô.`);
-      await loadProgress();
+      notifyDataChanged({ area: "imports", source: "delete-import" });
+      void loadProgress({ silent: true });
     } catch (caught) {
       setError(describeError(caught, "Không thể xóa lô dữ liệu"));
     } finally {
@@ -247,7 +258,8 @@ export default function ImportPage() {
       setSourceUrl("");
       setFile(null);
       clearPreview();
-      await loadProgress();
+      notifyDataChanged({ area: "imports", source: "submit-import" });
+      void loadProgress({ silent: true });
     } catch (caught) {
       setError(describeError(caught, "Nhập dữ liệu thất bại"));
     } finally {
@@ -417,7 +429,7 @@ export default function ImportPage() {
             imports={imports}
             loading={loadingProgress}
             deletingImportId={deletingImportId}
-            onRefresh={loadProgress}
+            onRefresh={() => loadProgress()}
             onDelete={deleteImportBatch}
           />
 
@@ -456,13 +468,13 @@ function ImportProgressPanel({
           <PhoneCall className="h-4 w-4 text-brand" aria-hidden="true" />
           <h2 className="text-base font-semibold text-white">Tiến trình gọi theo lô dữ liệu</h2>
         </div>
-        <NeonButton type="button" variant="secondary" disabled={loading} className="h-9" onClick={onRefresh}>
+        <NeonButton type="button" variant="secondary" disabled={loading} className="h-9" onClick={() => onRefresh()}>
           <RefreshCcw className="h-4 w-4" aria-hidden="true" />
           Tải lại
         </NeonButton>
       </div>
 
-      {loading ? (
+      {loading && !imports.length ? (
         <div className="p-4 text-sm text-slate-400">Đang tải tiến trình...</div>
       ) : imports.length ? (
         <div className="divide-y divide-cyan-300/10">

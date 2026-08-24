@@ -15,6 +15,7 @@ import { NeonButton } from "@/components/UI/NeonButton";
 import { Select } from "@/components/UI/Select";
 import { GlassTable, TableBody, TableHead, TableRow, Td, Th } from "@/components/UI/Table";
 import { apiFetch, describeError, getStoredUser } from "@/lib/api";
+import { notifyDataChanged, useLiveRefresh } from "@/lib/live-sync";
 import type { SessionUser, UserRole } from "@/lib/types";
 import { roleLabels } from "@/lib/types";
 
@@ -176,9 +177,9 @@ export default function EmployeesPage() {
     );
   }, [employees]);
 
-  const load = async () => {
-    setLoading(true);
-    setError("");
+  const load = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) setLoading(true);
+    if (!silent) setError("");
     try {
       const data = await apiFetch<{ users: Employee[] }>("/users");
       const optimisticEmployees = Object.values(optimisticEmployeesRef.current);
@@ -193,31 +194,33 @@ export default function EmployeesPage() {
         return mergedUsers[0]?.id || "";
       });
     } catch (caught) {
-      setError(describeError(caught, "Không tải được danh sách nhân viên"));
+      if (!silent) setError(describeError(caught, "Không tải được danh sách nhân viên"));
     } finally {
       setLoading(false);
     }
   };
 
-  const loadWeeklySchedules = async (targetWeekStart: string) => {
-    setLoadingWeeklySchedules(true);
-    setError("");
+  const loadWeeklySchedules = async (targetWeekStart: string, { silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) setLoadingWeeklySchedules(true);
+    if (!silent) setError("");
     try {
       const data = await apiFetch<{ schedules: WeeklySchedule[] }>(`/users/schedules?weekStart=${encodeURIComponent(targetWeekStart)}`);
       setWeeklySchedules(
         Object.fromEntries(data.schedules.filter((item) => item.userId).map((item) => [item.userId as string, item]))
       );
     } catch (caught) {
-      setWeeklySchedules({});
-      setError(describeError(caught, "Không tải được bảng lịch làm việc tuần"));
+      if (!silent) {
+        setWeeklySchedules({});
+        setError(describeError(caught, "Không tải được bảng lịch làm việc tuần"));
+      }
     } finally {
-      setLoadingWeeklySchedules(false);
+      if (!silent) setLoadingWeeklySchedules(false);
     }
   };
 
-  const loadDailyKpis = async (mode: KpiFilterMode, period: string) => {
-    setLoadingDailyKpis(true);
-    setError("");
+  const loadDailyKpis = async (mode: KpiFilterMode, period: string, { silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) setLoadingDailyKpis(true);
+    if (!silent) setError("");
     try {
       const data = await apiFetch<{ targetCustomers: number; items: WorkProgressKpi[] }>(
         `/users/work-kpis?mode=${encodeURIComponent(mode)}&period=${encodeURIComponent(period)}`
@@ -225,10 +228,12 @@ export default function EmployeesPage() {
       setKpiTarget(String(data.targetCustomers || 0));
       setDailyKpis(Object.fromEntries(data.items.map((item) => [item.userId, item])));
     } catch (caught) {
-      setDailyKpis({});
-      setError(describeError(caught, "Không tải được KPI hằng ngày"));
+      if (!silent) {
+        setDailyKpis({});
+        setError(describeError(caught, "Không tải được KPI hằng ngày"));
+      }
     } finally {
-      setLoadingDailyKpis(false);
+      if (!silent) setLoadingDailyKpis(false);
     }
   };
 
@@ -260,6 +265,21 @@ export default function EmployeesPage() {
     loadDailyKpis(kpiMode, kpiPeriod);
   }, [user?.role, employees, kpiMode, kpiPeriod]);
 
+  useLiveRefresh(async () => {
+    if (user?.role !== "ADMIN") return;
+    await load({ silent: true });
+    if (employees.length) {
+      await Promise.all([
+        loadWeeklySchedules(weekStart, { silent: true }),
+        kpiPeriod ? loadDailyKpis(kpiMode, kpiPeriod, { silent: true }) : Promise.resolve()
+      ]);
+    }
+  }, {
+    enabled: user?.role === "ADMIN",
+    intervalMs: 10000,
+    areas: ["customers", "interactions", "users", "tasks", "dashboard"]
+  });
+
   const createEmployee = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
@@ -288,6 +308,7 @@ export default function EmployeesPage() {
       setSelectedId(createdEmployee.id);
       setCreateForm({ name: "", username: "", email: "", password: "1", role: "STAFF" });
       setMessage("Đã tạo tài khoản nhân viên.");
+      notifyDataChanged({ area: "users", source: "create-employee" });
     } catch (caught) {
       setError(describeError(caught, "Không thể tạo nhân viên"));
     }
@@ -313,6 +334,7 @@ export default function EmployeesPage() {
       });
       setKpiTarget(String(data.target.targetCustomers || 0));
       setMessage("Đã lưu chỉ tiêu chung cho toàn bộ nhân viên.");
+      notifyDataChanged({ area: "users", source: "save-kpi-target" });
       await loadDailyKpis(kpiMode, kpiPeriod);
     } catch (caught) {
       setError(describeError(caught, "Không thể lưu chỉ tiêu chung"));
@@ -356,6 +378,7 @@ export default function EmployeesPage() {
       }
       if (viewEmployeeId === employee.id) setViewEmployeeId("");
       setMessage(`Đã xóa tài khoản của ${employee.name}.`);
+      notifyDataChanged({ area: "users", source: "delete-employee" });
     } catch (caught) {
       setError(describeError(caught, "Không thể xóa tài khoản"));
     } finally {

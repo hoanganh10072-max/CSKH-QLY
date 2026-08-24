@@ -11,6 +11,7 @@ import { Avatar } from "@/components/UI/Avatar";
 import { GlassCard } from "@/components/UI/GlassCard";
 import { GlassTable, TableBody, TableHead, TableRow, Td, Th } from "@/components/UI/Table";
 import { apiFetch, describeError } from "@/lib/api";
+import { useLiveRefresh } from "@/lib/live-sync";
 
 type DashboardResponse = {
   role: "ADMIN" | "STAFF";
@@ -48,11 +49,24 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [error, setError] = useState("");
 
+  const loadDashboard = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) setError("");
+    try {
+      const nextData = await apiFetch<DashboardResponse>("/dashboard");
+      setData(nextData);
+    } catch (caught) {
+      if (!silent) setError(describeError(caught, "Không tải được bảng điều khiển"));
+    }
+  };
+
   useEffect(() => {
-    apiFetch<DashboardResponse>("/dashboard")
-      .then(setData)
-      .catch((caught) => setError(describeError(caught, "Không tải được bảng điều khiển")));
+    loadDashboard();
   }, []);
+
+  useLiveRefresh(() => loadDashboard({ silent: true }), {
+    intervalMs: 10000,
+    areas: ["imports", "customers", "interactions", "users", "tasks", "dashboard"]
+  });
 
   return (
     <AppShell>

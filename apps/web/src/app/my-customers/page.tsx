@@ -28,7 +28,8 @@ import { Input } from "@/components/UI/Input";
 import { NeonButton } from "@/components/UI/NeonButton";
 import { Select } from "@/components/UI/Select";
 import { apiFetch, describeError, getStoredUser } from "@/lib/api";
-import type { ConsultationCallStatus, Customer, CustomerDetail, CustomerStatus, MessageStatus, SessionUser } from "@/lib/types";
+import { notifyDataChanged, useLiveRefresh } from "@/lib/live-sync";
+import type { ConsultationCallStatus, Customer, CustomerDetail, CustomerInteraction, CustomerStatus, MessageStatus, SessionUser } from "@/lib/types";
 
 type CustomerResponse = {
   customers: Customer[];
@@ -196,9 +197,9 @@ export default function MyCustomersPage() {
       });
   }, [customers, sortOrder]);
 
-  const loadCustomers = async () => {
-    setLoadingList(true);
-    setError("");
+  const loadCustomers = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) setLoadingList(true);
+    if (!silent) setError("");
     try {
       const data = await apiFetch<CustomerResponse>(`/customers?${query}`);
       setCustomers(data.customers);
@@ -207,27 +208,27 @@ export default function MyCustomersPage() {
         data.customers.some((customer) => customer.id === current) ? current : data.customers[0]?.id || ""
       );
     } catch (caught) {
-      setError(describeError(caught, "Không tải được khách hàng của tôi"));
+      if (!silent) setError(describeError(caught, "Không tải được khách hàng của tôi"));
     } finally {
-      setLoadingList(false);
+      if (!silent) setLoadingList(false);
     }
   };
 
-  const loadCustomerDetail = async (customerId: string) => {
+  const loadCustomerDetail = async (customerId: string, { silent = false }: { silent?: boolean } = {}) => {
     if (!customerId) {
       setSelectedCustomer(null);
       return;
     }
 
-    setLoadingDetail(true);
-    setError("");
+    if (!silent) setLoadingDetail(true);
+    if (!silent) setError("");
     try {
       const data = await apiFetch<{ customer: CustomerDetail }>(`/customers/${customerId}`);
       setSelectedCustomer(data.customer);
     } catch (caught) {
-      setError(describeError(caught, "Không tải được thông tin khách hàng"));
+      if (!silent) setError(describeError(caught, "Không tải được thông tin khách hàng"));
     } finally {
-      setLoadingDetail(false);
+      if (!silent) setLoadingDetail(false);
     }
   };
 
@@ -249,16 +250,22 @@ export default function MyCustomersPage() {
     }
   }, [selectedId]);
 
+  useLiveRefresh(() => refresh({ silent: true }), {
+    enabled: user?.role === "STAFF",
+    intervalMs: 10000,
+    areas: ["imports", "customers", "interactions"]
+  });
+
   const submitSearch = (event: FormEvent) => {
     event.preventDefault();
     setPage(1);
     loadCustomers();
   };
 
-  const refresh = async () => {
-    await loadCustomers();
+  const refresh = async ({ silent = false }: { silent?: boolean } = {}) => {
+    await loadCustomers({ silent });
     if (selectedId) {
-      await loadCustomerDetail(selectedId);
+      await loadCustomerDetail(selectedId, { silent });
     }
   };
 
@@ -286,7 +293,7 @@ export default function MyCustomersPage() {
     setError("");
     setMessage("");
     try {
-      await apiFetch(`/customers/${selectedCustomer.id}/interactions`, {
+      const data = await apiFetch<{ interaction: CustomerInteraction; customer: Customer | null }>(`/customers/${selectedCustomer.id}/interactions`, {
         method: "POST",
         json: {
           note: callForm.note,
@@ -301,9 +308,39 @@ export default function MyCustomersPage() {
           callHistoryImage: callForm.callHistoryImage || null
         }
       });
+      const nextStatus = data.customer?.status || selectedCustomer.status;
+      const nextDetail: CustomerDetail = {
+        ...selectedCustomer,
+        status: nextStatus,
+        updatedAt: data.interaction.createdAt,
+        interactions: [data.interaction, ...selectedCustomer.interactions]
+      };
+      setSelectedCustomer(nextDetail);
+      setCustomers((current) => {
+        const nextCustomers = current.map((customer) => customer.id === selectedCustomer.id
+          ? {
+            ...customer,
+            status: nextStatus,
+            updatedAt: data.interaction.createdAt,
+            interactions: [data.interaction, ...(customer.interactions || []).filter((interaction) => interaction.id !== data.interaction.id)]
+          }
+          : customer
+        );
+        return callState === "not_called"
+          ? nextCustomers.filter((customer) => customer.id !== selectedCustomer.id)
+          : nextCustomers;
+      });
+      if (callState === "not_called") {
+        setPagination((current) => {
+          if (!current) return current;
+          const total = Math.max(current.total - 1, 0);
+          return { ...current, total, totalPages: Math.max(Math.ceil(total / current.pageSize), 1) };
+        });
+      }
       setCallForm(emptyCallForm());
       setMessage("Đã lưu kết quả cuộc gọi.");
-      await refresh();
+      notifyDataChanged({ area: "interactions", source: "save-call" });
+      void refresh({ silent: true });
     } catch (caught) {
       setError(describeError(caught, "Không thể lưu kết quả cuộc gọi"));
     } finally {
@@ -393,7 +430,7 @@ export default function MyCustomersPage() {
                     {pagination ? `${numberFormat.format(pagination.total)} khách hàng` : "Đang tải"}
                   </div>
                 </div>
-                <NeonButton type="button" variant="secondary" className="h-9" onClick={refresh}>
+                <NeonButton type="button" variant="secondary" className="h-9" onClick={() => refresh()}>
                   <RefreshCcw className="h-4 w-4" aria-hidden="true" />
                   Tải lại
                 </NeonButton>
@@ -406,7 +443,7 @@ export default function MyCustomersPage() {
                 }}
               />
               <div className="max-h-[calc(100vh-340px)] min-h-80 overflow-auto p-3">
-                {loadingList ? (
+                {loadingList && !customers.length ? (
                   <div className="p-3 text-sm text-slate-400">Đang tải danh sách...</div>
                 ) : customers.length ? (
                   <div className="space-y-4">
