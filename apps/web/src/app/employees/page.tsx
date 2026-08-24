@@ -2,7 +2,7 @@
 
 import { CalendarDays, CircleDollarSign, ClipboardList, Eye, MessageSquareText, PhoneCall, Plus, Save, Trash2, Users, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { ErrorAlert, SuccessAlert, WarningAlert } from "@/components/alert";
 import { AppShell } from "@/components/app-shell";
@@ -158,6 +158,7 @@ export default function EmployeesPage() {
   const [kpiTarget, setKpiTarget] = useState("0");
   const [weeklySchedules, setWeeklySchedules] = useState<Record<string, WeeklySchedule>>({});
   const [dailyKpis, setDailyKpis] = useState<Record<string, WorkProgressKpi>>({});
+  const optimisticEmployeesRef = useRef<Record<string, Employee>>({});
 
   const viewedEmployee = useMemo(
     () => employees.find((employee) => employee.id === viewEmployeeId) || null,
@@ -180,10 +181,16 @@ export default function EmployeesPage() {
     setError("");
     try {
       const data = await apiFetch<{ users: Employee[] }>("/users");
-      setEmployees(data.users);
+      const optimisticEmployees = Object.values(optimisticEmployeesRef.current);
+      const mergedUsers = [
+        ...optimisticEmployees.filter((employee) => !data.users.some((item) => item.id === employee.id)),
+        ...data.users
+      ];
+
+      setEmployees(mergedUsers);
       setSelectedId((current) => {
-        if (current && data.users.some((employee) => employee.id === current)) return current;
-        return data.users[0]?.id || "";
+        if (current && mergedUsers.some((employee) => employee.id === current)) return current;
+        return mergedUsers[0]?.id || "";
       });
     } catch (caught) {
       setError(describeError(caught, "Không tải được danh sách nhân viên"));
@@ -269,10 +276,15 @@ export default function EmployeesPage() {
         }
       };
 
+      optimisticEmployeesRef.current = {
+        ...optimisticEmployeesRef.current,
+        [createdEmployee.id]: createdEmployee
+      };
       setEmployees((current) => [
         createdEmployee,
         ...current.filter((employee) => employee.id !== createdEmployee.id)
       ]);
+      setLoading(false);
       setSelectedId(createdEmployee.id);
       setCreateForm({ name: "", username: "", email: "", password: "1", role: "STAFF" });
       setMessage("Đã tạo tài khoản nhân viên.");
@@ -328,6 +340,9 @@ export default function EmployeesPage() {
     setMessage("");
     try {
       await apiFetch(`/users/${employee.id}`, { method: "DELETE" });
+      const nextOptimisticEmployees = { ...optimisticEmployeesRef.current };
+      delete nextOptimisticEmployees[employee.id];
+      optimisticEmployeesRef.current = nextOptimisticEmployees;
       const nextEmployees = employees.filter((item) => item.id !== employee.id);
       setEmployees(nextEmployees);
       setWeeklySchedules((old) => {
@@ -372,7 +387,7 @@ export default function EmployeesPage() {
             schedules={weeklySchedules}
             weekStart={weekStart}
             setWeekStart={setWeekStart}
-            loading={loading || loadingWeeklySchedules}
+            loading={(loading && !employees.length) || loadingWeeklySchedules}
             selectedId={selectedId}
             onSelectEmployee={setSelectedId}
           />
@@ -396,7 +411,7 @@ export default function EmployeesPage() {
                     </tr>
                   </TableHead>
                   <TableBody>
-                    {loading ? (
+                    {loading && !employees.length ? (
                       <tr><Td className="py-6 text-slate-400" colSpan={6}>Đang tải...</Td></tr>
                     ) : employees.length ? employees.map((employee) => (
                       <TableRow key={employee.id} className={selectedId === employee.id ? "bg-cyan-300/[0.06]" : ""}>
