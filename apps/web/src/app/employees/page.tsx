@@ -37,6 +37,8 @@ type WeeklySchedule = {
 };
 
 type KpiFilterMode = "day" | "month" | "year";
+type ShiftPeriod = "morning" | "afternoon";
+type WorkingEmployee = { employee: Employee; day: ScheduleDay; note: string };
 
 type WorkProgressKpi = {
   userId: string;
@@ -90,6 +92,11 @@ const dayItems: Array<{ key: DayKey; label: string }> = [
   { key: "sunday", label: "Chủ nhật" }
 ];
 
+const shiftItems: Array<{ key: ShiftPeriod; label: string; emptyLabel: string; start: number; end: number }> = [
+  { key: "morning", label: "Sáng", emptyLabel: "Chưa có lịch sáng", start: 0, end: 12 * 60 },
+  { key: "afternoon", label: "Chiều", emptyLabel: "Chưa có lịch chiều", start: 12 * 60, end: 24 * 60 }
+];
+
 const localDate = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -113,6 +120,44 @@ const normalizeWeekStart = (value: string) => {
 };
 
 const defaultWeekStart = () => localDate(mondayOfWeek(new Date()));
+
+const timeToMinutes = (value: string) => {
+  const match = /^(\d{1,2}):(\d{2})/.exec(value);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+};
+
+const minutesToTime = (value: number) => {
+  const bounded = Math.max(0, Math.min(value, 24 * 60));
+  const hours = Math.floor(bounded / 60);
+  const minutes = bounded % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+};
+
+const normalizedScheduleRange = (day: ScheduleDay) => {
+  const start = timeToMinutes(day.start);
+  const end = timeToMinutes(day.end);
+  if (start === null || end === null) return null;
+  return { start, end: end <= start ? 24 * 60 : end };
+};
+
+const isWorkingInShift = (day: ScheduleDay, shift: (typeof shiftItems)[number]) => {
+  const range = normalizedScheduleRange(day);
+  if (!range) return false;
+  return range.start < shift.end && range.end > shift.start;
+};
+
+const formatShiftTime = (day: ScheduleDay, shift: (typeof shiftItems)[number]) => {
+  const range = normalizedScheduleRange(day);
+  if (!range) return `${day.start} đến ${day.end}`;
+  const start = Math.max(range.start, shift.start);
+  const end = Math.min(range.end, shift.end);
+  return `${minutesToTime(start)} đến ${minutesToTime(end)}`;
+};
+
 const defaultKpiPeriod = (mode: KpiFilterMode) => {
   const today = new Date();
   if (mode === "year") return String(today.getFullYear());
@@ -633,12 +678,18 @@ function WeeklyScheduleOverview({
           note: schedules[employee.id]?.note || ""
         };
       })
-      .filter(Boolean) as Array<{ employee: Employee; day: ScheduleDay; note: string }>;
+      .filter(Boolean) as WorkingEmployee[];
+
+    const shifts = shiftItems.map((shift) => ({
+      ...shift,
+      workingEmployees: workingEmployees.filter(({ day }) => isWorkingInShift(day, shift))
+    }));
 
     return {
       ...item,
       date,
-      workingEmployees
+      workingEmployees,
+      shifts
     };
   });
 
@@ -675,38 +726,54 @@ function WeeklyScheduleOverview({
                 </span>
               </div>
 
-              {item.workingEmployees.length ? (
-                <div className="space-y-2">
-                  {item.workingEmployees.map(({ employee, day, note }) => (
-                    <button
-                      key={`${item.key}-${employee.id}`}
-                      type="button"
-                      onClick={() => onSelectEmployee(employee.id)}
-                      className={`weekly-calendar-shift-card w-full rounded-lg border p-3 text-left transition hover:border-cyan-300/45 hover:bg-cyan-300/[0.10] focus-ring ${
-                        selectedId === employee.id
-                          ? "border-cyan-300/[0.45] bg-cyan-300/[0.12]"
-                          : "border-emerald-300/[0.22] bg-emerald-300/[0.07]"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Avatar name={employee.name} className="h-8 w-8 text-[10px]" />
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold text-white">{employee.name}</div>
-                          <div className="text-xs text-slate-400">{roleLabels[employee.role]}</div>
-                        </div>
+              <div className="space-y-3">
+                {item.shifts.map((shift) => (
+                  <div
+                    key={`${item.key}-${shift.key}`}
+                    className="weekly-calendar-period rounded-xl border border-cyan-300/[0.14] bg-slate-900/35 p-2.5"
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <h4 className="text-xs font-bold uppercase text-cyan-100">{shift.label}</h4>
+                      <span className="rounded-full border border-cyan-300/[0.22] bg-cyan-300/[0.08] px-2 py-0.5 text-[11px] font-semibold text-cyan-100">
+                        {shift.workingEmployees.length} người
+                      </span>
+                    </div>
+
+                    {shift.workingEmployees.length ? (
+                      <div className="space-y-2">
+                        {shift.workingEmployees.map(({ employee, day, note }) => (
+                          <button
+                            key={`${item.key}-${shift.key}-${employee.id}`}
+                            type="button"
+                            onClick={() => onSelectEmployee(employee.id)}
+                            className={`weekly-calendar-shift-card w-full rounded-lg border p-3 text-left transition hover:border-cyan-300/45 hover:bg-cyan-300/[0.10] focus-ring ${
+                              selectedId === employee.id
+                                ? "border-cyan-300/[0.45] bg-cyan-300/[0.12]"
+                                : "border-emerald-300/[0.22] bg-emerald-300/[0.07]"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <Avatar name={employee.name} className="h-8 w-8 text-[10px]" />
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-semibold text-white">{employee.name}</div>
+                                <div className="text-xs text-slate-400">{roleLabels[employee.role]}</div>
+                              </div>
+                            </div>
+                            <div className="weekly-calendar-time mt-3 rounded-lg border border-emerald-300/[0.18] bg-emerald-300/[0.10] px-2.5 py-2 text-center text-sm font-semibold text-emerald-100">
+                              {formatShiftTime(day, shift)}
+                            </div>
+                            {note ? <div className="mt-2 line-clamp-2 text-xs text-slate-400">{note}</div> : null}
+                          </button>
+                        ))}
                       </div>
-                      <div className="weekly-calendar-time mt-3 rounded-lg border border-emerald-300/[0.18] bg-emerald-300/[0.10] px-2.5 py-2 text-center text-sm font-semibold text-emerald-100">
-                        {day.start} đến {day.end}
+                    ) : (
+                      <div className="weekly-calendar-empty weekly-calendar-shift-empty grid min-h-20 place-items-center rounded-lg border border-slate-500/20 bg-slate-500/[0.08] px-3 text-center text-xs font-medium text-slate-400">
+                        {shift.emptyLabel}
                       </div>
-                      {note ? <div className="mt-2 line-clamp-2 text-xs text-slate-400">{note}</div> : null}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="weekly-calendar-empty grid min-h-40 place-items-center rounded-lg border border-slate-500/20 bg-slate-500/[0.08] px-3 text-center text-sm font-medium text-slate-400">
-                  Không có nhân viên làm việc
-                </div>
-              )}
+                    )}
+                  </div>
+                ))}
+              </div>
             </section>
           ))}
         </div>
@@ -901,3 +968,4 @@ function Field({
     </label>
   );
 }
+

@@ -372,6 +372,11 @@ option {
   background: #ffffff !important;
 }
 
+.theme-light .weekly-calendar-period {
+  background: rgba(255, 255, 255, 0.72) !important;
+  border-color: rgba(8, 145, 178, 0.22) !important;
+}
+
 .theme-light .weekly-calendar-time {
   background: rgba(209, 250, 229, 0.86) !important;
   border-color: rgba(16, 185, 129, 0.30) !important;
@@ -383,3 +388,8 @@ option {
   border-color: rgba(100, 116, 139, 0.22) !important;
   color: #475569 !important;
 }
+
+.theme-light .weekly-calendar-shift-empty {
+  background: rgba(241, 245, 249, 0.78) !important;
+}
+
