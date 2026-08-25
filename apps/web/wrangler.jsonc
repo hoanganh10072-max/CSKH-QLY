@@ -1,0 +1,36 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "mscilabs-web",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-08-24",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "mscilabs-web"
+    }
+  ],
+  "routes": [
+    {
+      "pattern": "trungtamgiasuskv.cloud/*",
+      "zone_name": "trungtamgiasuskv.cloud"
+    },
+    {
+      "pattern": "www.trungtamgiasuskv.cloud/*",
+      "zone_name": "trungtamgiasuskv.cloud"
+    }
+  ],
+  "vars": {
+    "NEXT_PUBLIC_API_URL": "https://api.trungtamgiasuskv.cloud",
+    "NEXTJS_ENV": "production"
+  }
+}
+
+

@@ -11,9 +11,14 @@
     "typecheck": "npm run typecheck --workspaces",
     "prisma:generate": "npm run prisma:generate -w @cskh/api",
     "prisma:migrate": "npm run prisma:migrate -w @cskh/api",
-    "seed": "npm run seed -w @cskh/api"
+    "seed": "npm run seed -w @cskh/api",
+    "cloudflare:build": "npm run cloudflare:build -w @cskh/api && npm run cloudflare:build -w @cskh/web",
+    "cloudflare:deploy:api": "npm run deploy:cloudflare -w @cskh/api",
+    "cloudflare:deploy:web": "npm run deploy:cloudflare -w @cskh/web",
+    "cloudflare:deploy": "npm run cloudflare:deploy:api && npm run cloudflare:deploy:web"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "wrangler": "^4.125.0"
   }
 }

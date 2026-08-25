@@ -3,6 +3,19 @@
 import type { SessionUser } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const PRODUCTION_HOSTS = new Set(["trungtamgiasuskv.cloud", "www.trungtamgiasuskv.cloud"]);
+
+const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const ensureHttpsOnProduction = () => {
+  if (typeof window === "undefined") return;
+  if (window.location.protocol === "https:") return;
+  if (!PRODUCTION_HOSTS.has(window.location.hostname)) return;
+
+  const nextUrl = new URL(window.location.href);
+  nextUrl.protocol = "https:";
+  window.location.replace(nextUrl.toString());
+};
 const TOKEN_KEY = "cskh_token";
 const USER_KEY = "cskh_user";
 
@@ -51,6 +64,7 @@ export const clearSession = () => {
 };
 
 export const apiFetch = async <T>(path: string, options: ApiOptions = {}) => {
+  ensureHttpsOnProduction();
   const { json, headers: inputHeaders, ...init } = options;
   const headers = new Headers(inputHeaders);
   const token = getToken();
@@ -65,19 +79,28 @@ export const apiFetch = async <T>(path: string, options: ApiOptions = {}) => {
     body = JSON.stringify(json);
   }
 
-  let response: Response;
+  let response: Response | null = null;
+  let networkError: unknown = null;
 
-  try {
-    response = await fetch(`${API_URL}${path}`, {
-      ...init,
-      body,
-      headers,
-      cache: "no-store"
-    });
-  } catch (caught) {
-    const reason = caught instanceof Error ? caught.message : String(caught);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      response = await fetch(`${API_URL}${path}`, {
+        ...init,
+        body,
+        headers,
+        cache: "no-store"
+      });
+      break;
+    } catch (caught) {
+      networkError = caught;
+      if (attempt < 2) await sleep(500 * (attempt + 1));
+    }
+  }
+
+  if (!response) {
+    const reason = networkError instanceof Error ? networkError.message : String(networkError);
     throw new ApiError(`Không kết nối được API ${API_URL}${path}. Chi tiết: ${reason}`, 0, "NETWORK_ERROR", {
-      raw: caught
+      raw: networkError
     });
   }
 
@@ -224,3 +247,6 @@ export const describeError = (caught: unknown, fallback: string) => {
 
   return `${fallback}\n${String(caught)}`;
 };
+
+
+

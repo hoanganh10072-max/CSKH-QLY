@@ -15,7 +15,7 @@ import { NeonButton } from "@/components/UI/NeonButton";
 import { Select } from "@/components/UI/Select";
 import { GlassTable, TableBody, TableHead, TableRow, Td, Th } from "@/components/UI/Table";
 import { apiFetch, describeError, getStoredUser } from "@/lib/api";
-import { notifyDataChanged, useLiveRefresh } from "@/lib/live-sync";
+import { notifyDataChanged } from "@/lib/live-sync";
 import type { SessionUser, UserRole } from "@/lib/types";
 import { roleLabels } from "@/lib/types";
 
@@ -189,6 +189,7 @@ export default function EmployeesPage() {
   const [loadingWeeklySchedules, setLoadingWeeklySchedules] = useState(false);
   const [loadingDailyKpis, setLoadingDailyKpis] = useState(false);
   const [savingKpiTarget, setSavingKpiTarget] = useState(false);
+  const [creatingEmployee, setCreatingEmployee] = useState(false);
   const [deletingId, setDeletingId] = useState("");
   const [viewEmployeeId, setViewEmployeeId] = useState("");
   const [createForm, setCreateForm] = useState({
@@ -299,7 +300,7 @@ export default function EmployeesPage() {
     }
 
     loadWeeklySchedules(weekStart);
-  }, [user?.role, employees, weekStart]);
+  }, [user?.role, weekStart]);
 
   useEffect(() => {
     if (user?.role !== "ADMIN" || !employees.length || !kpiPeriod) {
@@ -308,27 +309,13 @@ export default function EmployeesPage() {
     }
 
     loadDailyKpis(kpiMode, kpiPeriod);
-  }, [user?.role, employees, kpiMode, kpiPeriod]);
-
-  useLiveRefresh(async () => {
-    if (user?.role !== "ADMIN") return;
-    await load({ silent: true });
-    if (employees.length) {
-      await Promise.all([
-        loadWeeklySchedules(weekStart, { silent: true }),
-        kpiPeriod ? loadDailyKpis(kpiMode, kpiPeriod, { silent: true }) : Promise.resolve()
-      ]);
-    }
-  }, {
-    enabled: user?.role === "ADMIN",
-    intervalMs: 10000,
-    areas: ["customers", "interactions", "users", "tasks", "dashboard"]
-  });
+  }, [user?.role, kpiMode, kpiPeriod]);
 
   const createEmployee = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
     setMessage("");
+    setCreatingEmployee(true);
     try {
       const data = await apiFetch<{ user: Employee }>("/users", { method: "POST", json: { ...createForm, role: "STAFF" } });
       const createdEmployee: Employee = {
@@ -354,11 +341,15 @@ export default function EmployeesPage() {
       setCreateForm({ name: "", username: "", email: "", password: "1", role: "STAFF" });
       setMessage("Đã tạo tài khoản nhân viên.");
       notifyDataChanged({ area: "users", source: "create-employee" });
+      await load({ silent: true });
+      await loadWeeklySchedules(weekStart, { silent: true });
+      if (kpiPeriod) await loadDailyKpis(kpiMode, kpiPeriod, { silent: true });
     } catch (caught) {
       setError(describeError(caught, "Không thể tạo nhân viên"));
+    } finally {
+      setCreatingEmployee(false);
     }
   };
-
   const changeKpiMode = (mode: KpiFilterMode) => {
     setKpiMode(mode);
     setKpiPeriod(defaultKpiPeriod(mode));
@@ -546,7 +537,7 @@ export default function EmployeesPage() {
             </div>
 
             <div className="space-y-5">
-              <CreateEmployeeForm form={createForm} setForm={setCreateForm} onSubmit={createEmployee} />
+              <CreateEmployeeForm form={createForm} setForm={setCreateForm} onSubmit={createEmployee} creating={creatingEmployee} />
             </div>
           </div>
 
@@ -680,25 +671,30 @@ function WeeklyScheduleOverview({
       })
       .filter(Boolean) as WorkingEmployee[];
 
-    const shifts = shiftItems.map((shift) => ({
-      ...shift,
-      workingEmployees: workingEmployees.filter(({ day }) => isWorkingInShift(day, shift))
-    }));
-
     return {
       ...item,
       date,
-      workingEmployees,
-      shifts
+      workingEmployees
     };
   });
 
+  const scheduleMatrix = shiftItems.map((shift) => ({
+    ...shift,
+    days: days.map((day) => ({
+      ...day,
+      workingEmployees: day.workingEmployees.filter((item) => isWorkingInShift(item.day, shift))
+    }))
+  }));
+
   return (
-    <GlassCard>
+    <GlassCard className="overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-300/10 px-4 py-3">
         <div className="flex items-center gap-2">
           <CalendarDays className="h-4 w-4 text-brand" aria-hidden="true" />
-          <h2 className="text-base font-semibold text-white">Bảng lịch làm việc tuần</h2>
+          <div>
+            <h2 className="text-base font-semibold text-white">Bảng lịch làm việc tuần</h2>
+            <p className="mt-0.5 text-xs text-slate-400">Theo dõi nhân sự theo từng ngày và từng ca làm việc.</p>
+          </div>
         </div>
         <label className="flex items-center gap-2 text-sm text-slate-300">
           <span>Tuần bắt đầu</span>
@@ -713,69 +709,70 @@ function WeeklyScheduleOverview({
       {loading ? (
         <div className="p-4 text-sm text-slate-400">Đang tải bảng lịch làm việc...</div>
       ) : employees.length ? (
-        <div className="weekly-calendar-grid grid gap-px overflow-hidden rounded-b-lg bg-cyan-300/10 md:grid-cols-2 xl:grid-cols-7">
-          {days.map((item) => (
-            <section key={item.key} className="weekly-calendar-day min-h-72 bg-slate-950/55 p-3">
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold uppercase text-cyan-100">{item.label}</h3>
-                  <div className="mt-1 text-2xl font-semibold text-white">{compactDateFormat.format(item.date)}</div>
-                </div>
-                <span className="rounded-full border border-cyan-300/[0.24] bg-cyan-300/[0.10] px-2.5 py-1 text-xs font-semibold text-cyan-100">
-                  {item.workingEmployees.length} người
-                </span>
-              </div>
-
-              <div className="space-y-3">
-                {item.shifts.map((shift) => (
-                  <div
-                    key={`${item.key}-${shift.key}`}
-                    className="weekly-calendar-period rounded-xl border border-cyan-300/[0.14] bg-slate-900/35 p-2.5"
-                  >
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <h4 className="text-xs font-bold uppercase text-cyan-100">{shift.label}</h4>
-                      <span className="rounded-full border border-cyan-300/[0.22] bg-cyan-300/[0.08] px-2 py-0.5 text-[11px] font-semibold text-cyan-100">
-                        {shift.workingEmployees.length} người
-                      </span>
+        <div className="overflow-x-auto">
+          <div className="min-w-[1180px]">
+            <div className="grid grid-cols-[132px_repeat(7,minmax(140px,1fr))] border-b border-cyan-300/10 bg-slate-950/45">
+              <div className="border-r border-cyan-300/10 px-4 py-3 text-xs font-bold uppercase text-slate-400">Ca làm</div>
+              {days.map((day) => (
+                <div key={day.key} className="border-r border-cyan-300/10 px-3 py-3 last:border-r-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-bold uppercase text-cyan-100">{day.label}</div>
+                      <div className="mt-1 text-xl font-semibold text-white">{compactDateFormat.format(day.date)}</div>
                     </div>
+                    <span className="shrink-0 rounded-full border border-cyan-300/[0.24] bg-cyan-300/[0.10] px-2 py-0.5 text-[11px] font-semibold text-cyan-100">
+                      {day.workingEmployees.length} người
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
 
-                    {shift.workingEmployees.length ? (
+            {scheduleMatrix.map((shift) => (
+              <div key={shift.key} className="grid grid-cols-[132px_repeat(7,minmax(140px,1fr))] border-b border-cyan-300/10 last:border-b-0">
+                <div className="border-r border-cyan-300/10 bg-slate-900/45 px-4 py-4">
+                  <div className="text-sm font-bold uppercase text-white">{shift.label}</div>
+                  <div className="mt-1 text-xs text-slate-400">{minutesToTime(shift.start)} - {minutesToTime(shift.end)}</div>
+                </div>
+                {shift.days.map((day) => (
+                  <div key={`${shift.key}-${day.key}`} className="min-h-36 border-r border-cyan-300/10 bg-slate-950/35 p-2.5 last:border-r-0">
+                    {day.workingEmployees.length ? (
                       <div className="space-y-2">
-                        {shift.workingEmployees.map(({ employee, day, note }) => (
+                        {day.workingEmployees.map(({ employee, day: scheduleDay, note }) => (
                           <button
-                            key={`${item.key}-${shift.key}-${employee.id}`}
+                            key={`${shift.key}-${day.key}-${employee.id}`}
                             type="button"
                             onClick={() => onSelectEmployee(employee.id)}
-                            className={`weekly-calendar-shift-card w-full rounded-lg border p-3 text-left transition hover:border-cyan-300/45 hover:bg-cyan-300/[0.10] focus-ring ${
+                            className={`w-full rounded-lg border px-2.5 py-2 text-left hover:border-cyan-300/45 hover:bg-cyan-300/[0.10] focus-ring ${
                               selectedId === employee.id
                                 ? "border-cyan-300/[0.45] bg-cyan-300/[0.12]"
-                                : "border-emerald-300/[0.22] bg-emerald-300/[0.07]"
+                                : "border-emerald-300/[0.20] bg-emerald-300/[0.07]"
                             }`}
                           >
                             <div className="flex items-center gap-2">
-                              <Avatar name={employee.name} className="h-8 w-8 text-[10px]" />
+                              <Avatar name={employee.name} className="h-7 w-7 text-[10px]" />
                               <div className="min-w-0">
                                 <div className="truncate text-sm font-semibold text-white">{employee.name}</div>
-                                <div className="text-xs text-slate-400">{roleLabels[employee.role]}</div>
+                                <div className="truncate text-[11px] text-slate-400">{roleLabels[employee.role]}</div>
                               </div>
                             </div>
-                            <div className="weekly-calendar-time mt-3 rounded-lg border border-emerald-300/[0.18] bg-emerald-300/[0.10] px-2.5 py-2 text-center text-sm font-semibold text-emerald-100">
-                              {formatShiftTime(day, shift)}
+                            <div className="mt-2 rounded-md border border-emerald-300/[0.18] bg-emerald-300/[0.10] px-2 py-1 text-center text-xs font-semibold text-emerald-100">
+                              {formatShiftTime(scheduleDay, shift)}
                             </div>
-                            {note ? <div className="mt-2 line-clamp-2 text-xs text-slate-400">{note}</div> : null}
+                            {note ? <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-400">{note}</div> : null}
                           </button>
                         ))}
                       </div>
                     ) : (
-                      <div className="weekly-calendar-empty weekly-calendar-shift-empty grid min-h-20 place-items-center rounded-lg border border-slate-500/20 bg-slate-500/[0.08] px-3 text-center text-xs font-medium text-slate-400">
+                      <div className="grid h-full min-h-28 place-items-center rounded-lg border border-slate-500/20 bg-slate-500/[0.06] px-2 text-center text-xs font-medium text-slate-500">
                         {shift.emptyLabel}
                       </div>
                     )}
                   </div>
                 ))}
               </div>
-            </section>
-          ))}
+            ))}
+          </div>
         </div>
       ) : (
         <div className="p-4 text-sm text-slate-400">Chưa có nhân viên.</div>
@@ -907,7 +904,8 @@ function WorkProgressManager({
 function CreateEmployeeForm({
   form,
   setForm,
-  onSubmit
+  onSubmit,
+  creating
 }: {
   form: {
     name: string;
@@ -924,6 +922,7 @@ function CreateEmployeeForm({
     role: UserRole;
   }>>;
   onSubmit: (event: FormEvent) => void;
+  creating: boolean;
 }) {
   return (
     <form onSubmit={onSubmit} className="glass-card p-4">
@@ -938,9 +937,9 @@ function CreateEmployeeForm({
           Nhân viên
         </div>
       </label>
-      <NeonButton className="w-full">
+      <NeonButton type="submit" disabled={creating} className="w-full">
         <Plus className="h-4 w-4" aria-hidden="true" />
-        Tạo tài khoản nhân viên
+        {creating ? "Đang tạo tài khoản..." : "Tạo tài khoản nhân viên"}
       </NeonButton>
     </form>
   );
@@ -968,4 +967,7 @@ function Field({
     </label>
   );
 }
+
+
+
 

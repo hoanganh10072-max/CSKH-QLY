@@ -12,9 +12,13 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "seed": "tsx prisma/seed.ts",
-    "seed:admin": "tsx prisma/seed-admin.ts"
+    "seed:admin": "tsx prisma/seed-admin.ts",
+    "cloudflare:build": "npm run prisma:generate && npm run build",
+    "deploy:cloudflare": "npm run cloudflare:build && wrangler deploy --config wrangler.jsonc",
+    "dev:cloudflare": "npm run cloudflare:build && wrangler dev --config wrangler.jsonc"
   },
   "dependencies": {
+    "@prisma/adapter-pg": "^6.12.0",
     "@prisma/client": "6.12.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
@@ -25,8 +29,9 @@
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
     "multer": "^2.0.2",
-    "read-excel-file": "^5.8.8",
+    "pg": "^8.23.0",
     "prisma": "6.12.0",
+    "read-excel-file": "^5.8.8",
     "zod": "^3.24.1"
   },
   "devDependencies": {
@@ -37,6 +42,7 @@
     "@types/morgan": "^1.9.9",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.10.5",
+    "@types/pg": "^8.23.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }

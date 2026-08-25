@@ -1,6 +1,6 @@
 export function PageHeading({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <div className="mb-6 border-b border-cyan-300/10 pb-5 animate-fade-in">
+    <div className="mb-6 border-b border-cyan-300/10 pb-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <div className="mb-2 h-1 w-16 rounded-full bg-gradient-to-r from-action via-brand to-violet-400 shadow-neon" />
@@ -11,3 +11,4 @@ export function PageHeading({ title, subtitle }: { title: string; subtitle?: str
     </div>
   );
 }
+

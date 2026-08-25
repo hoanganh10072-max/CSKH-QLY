@@ -1,0 +1,34 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "mscilabs-api",
+  "main": "dist/src/worker.js",
+  "compatibility_date": "2026-08-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "routes": [
+    {
+      "pattern": "api.trungtamgiasuskv.cloud/*",
+      "zone_name": "trungtamgiasuskv.cloud"
+    },
+    {
+      "pattern": "trungtamgiasuskv.cloud/api/*",
+      "zone_name": "trungtamgiasuskv.cloud"
+    },
+    {
+      "pattern": "www.trungtamgiasuskv.cloud/api/*",
+      "zone_name": "trungtamgiasuskv.cloud"
+    }
+  ],
+  "vars": {
+    "PORT": "4000",
+    "JWT_EXPIRES_IN": "7d",
+    "CLIENT_ORIGIN": "https://trungtamgiasuskv.cloud,https://www.trungtamgiasuskv.cloud",
+    "STAFF_DAILY_CUSTOMER_TARGET": "50",
+    "SUPABASE_STORAGE_ENABLED": "false",
+    "SUPABASE_CALL_IMAGES_BUCKET": "mscilabs-call-images",
+    "NODE_ENV": "production"
+  }
+}
+

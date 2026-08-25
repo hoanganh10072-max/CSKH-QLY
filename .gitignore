@@ -12,3 +12,8 @@ uploads
 .docker-config
 .logs
 *.inspect.ndjson
+.open-next
+.wrangler
+.dev.vars
+cloudflare-env.d.ts
+

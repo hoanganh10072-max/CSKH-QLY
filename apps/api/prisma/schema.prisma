@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
@@ -242,3 +243,4 @@ model WorkKpiTarget {
   @@index([periodMode])
   @@map("work_kpi_targets")
 }
+

@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SessionUser, UserRole, UserStatus } from "@/lib/types";
 import { roleLabels } from "@/lib/types";
 import { apiFetch, describeError } from "@/lib/api";
-import { useLiveRefresh } from "@/lib/live-sync";
+
 import { navigationFor } from "./Sidebar";
 import { Avatar } from "@/components/UI/Avatar";
 import { Dropdown } from "@/components/UI/Dropdown";
@@ -285,11 +285,6 @@ export function Header({
     loadNotifications();
   }, [loadNotifications, pathname]);
 
-  useLiveRefresh(loadNotifications, {
-    intervalMs: 20000,
-    areas: ["imports", "customers", "interactions", "users", "tasks", "dashboard"]
-  });
-
   const ThemeIcon = theme === "dark" ? Sun : Moon;
 
   return (
@@ -422,3 +417,4 @@ export function Header({
     </header>
   );
 }
+

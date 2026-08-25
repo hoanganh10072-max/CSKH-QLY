@@ -56,9 +56,9 @@ export const notifyDataChanged = (payload: Omit<DataSyncPayload, "at"> = {}) => 
 export const useLiveRefresh = (refresh: () => void | Promise<void>, options: LiveRefreshOptions = {}) => {
   const {
     enabled = true,
-    intervalMs = 15000,
+    intervalMs = 0,
     areas = [],
-    refreshOnFocus = true
+    refreshOnFocus = false
   } = options;
   const refreshRef = useRef(refresh);
   const inFlightRef = useRef(false);
@@ -110,18 +110,12 @@ export const useLiveRefresh = (refresh: () => void | Promise<void>, options: Liv
       channel.onmessage = (event) => handlePayload(event.data as DataSyncPayload);
     }
 
-    const timer = intervalMs > 0
-      ? window.setInterval(() => {
-        if (document.visibilityState === "visible") run();
-      }, intervalMs)
-      : null;
-
     return () => {
       window.removeEventListener(DATA_SYNC_EVENT, handleCustomEvent);
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("focus", handleFocus);
-      if (timer) window.clearInterval(timer);
       channel?.close();
     };
   }, [enabled, intervalMs, areasKey, refreshOnFocus]);
 };
+
