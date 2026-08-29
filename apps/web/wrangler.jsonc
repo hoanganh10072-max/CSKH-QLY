@@ -20,12 +20,12 @@
   ],
   "routes": [
     {
-      "pattern": "trungtamgiasuskv.cloud/*",
-      "zone_name": "trungtamgiasuskv.cloud"
+      "pattern": "trungtamgiasuskv.cloud",
+      "custom_domain": true
     },
     {
-      "pattern": "www.trungtamgiasuskv.cloud/*",
-      "zone_name": "trungtamgiasuskv.cloud"
+      "pattern": "www.trungtamgiasuskv.cloud",
+      "custom_domain": true
     }
   ],
   "vars": {

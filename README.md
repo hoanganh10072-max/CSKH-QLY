@@ -91,41 +91,35 @@ Với production đã có dữ liệu thật, không chạy `npm run seed`. Nế
 npm run seed:admin -w @cskh/api
 ```
 
-## Triển khai production bằng Render Blueprint
+## Triển khai production bằng Cloudflare
 
-Repo đã có file `render.yaml` để tạo tự động:
+Dự án hiện dùng Cloudflare Workers cho cả web và API, không dùng Render.
 
-- `mscilabs-web`: giao diện Next.js
-- `mscilabs-api`: API Express
-- `mscilabs-postgres`: PostgreSQL
+Các service production:
 
-Trên Render, tạo Blueprint từ repo GitHub này. Render sẽ đọc `render.yaml`, chạy migration Prisma và tạo admin mặc định bằng seed an toàn.
+- Web: `https://trungtamgiasuskv.cloud`
+- API: `https://api.trungtamgiasuskv.cloud`
+- Database: PostgreSQL bên ngoài Cloudflare, hiện dùng Supabase.
 
-Các URL tạm sau khi tạo:
+Các lệnh triển khai:
 
-- Web tạm: `https://mscilabs-web.onrender.com`
-- API tạm: `https://mscilabs-api.onrender.com`
-- Web domain thật: `https://trungtamgiasuskv.cloud`
-- API domain thật: `https://api.trungtamgiasuskv.cloud`
-
-Khi gắn tên miền riêng:
-
-1. Gắn domain chính vào service `mscilabs-web`: `trungtamgiasuskv.cloud`.
-2. Gắn subdomain API vào service `mscilabs-api`: `api.trungtamgiasuskv.cloud`.
-3. Cập nhật env của `mscilabs-api`:
-
-```env
-CLIENT_ORIGIN="https://trungtamgiasuskv.cloud,https://www.trungtamgiasuskv.cloud,https://mscilabs-web.onrender.com"
+```bash
+npm run cloudflare:deploy:api
+npm run cloudflare:deploy:web
 ```
 
-4. Cập nhật env của `mscilabs-web`:
+Hoặc deploy cả hai:
+
+```bash
+npm run cloudflare:deploy
+```
+
+Biến môi trường production cần giữ ở Cloudflare:
 
 ```env
+CLIENT_ORIGIN="https://trungtamgiasuskv.cloud,https://www.trungtamgiasuskv.cloud"
 NEXT_PUBLIC_API_URL="https://api.trungtamgiasuskv.cloud"
 ```
-
-5. Redeploy lại web và API sau khi đổi env.
-
 ## Lưu ảnh cuộc gọi lên Supabase Storage
 
 Tạo bucket Storage tên `cskh-call-images`. Với bản dùng nhanh, đặt bucket ở chế độ public để ảnh có thể hiển thị trực tiếp trong web.
