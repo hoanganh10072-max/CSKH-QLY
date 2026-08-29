@@ -2,9 +2,17 @@
 
 import type { SessionUser } from "./types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-export const getApiBaseUrl = () => API_URL;
 const PRODUCTION_HOSTS = new Set(["trungtamgiasuskv.cloud", "www.trungtamgiasuskv.cloud"]);
+const PRODUCTION_API_URL = "https://api.trungtamgiasuskv.cloud";
+const CONFIGURED_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+
+export const getApiBaseUrl = () => {
+  if (typeof window !== "undefined" && PRODUCTION_HOSTS.has(window.location.hostname)) {
+    return PRODUCTION_API_URL;
+  }
+
+  return CONFIGURED_API_URL;
+};
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
@@ -66,6 +74,7 @@ export const clearSession = () => {
 
 export const apiFetch = async <T>(path: string, options: ApiOptions = {}) => {
   ensureHttpsOnProduction();
+  const apiUrl = getApiBaseUrl();
   const { json, headers: inputHeaders, ...init } = options;
   const headers = new Headers(inputHeaders);
   const token = getToken();
@@ -85,7 +94,7 @@ export const apiFetch = async <T>(path: string, options: ApiOptions = {}) => {
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      response = await fetch(`${API_URL}${path}`, {
+      response = await fetch(`${apiUrl}${path}`, {
         ...init,
         body,
         headers,
@@ -100,7 +109,7 @@ export const apiFetch = async <T>(path: string, options: ApiOptions = {}) => {
 
   if (!response) {
     const reason = networkError instanceof Error ? networkError.message : String(networkError);
-    throw new ApiError(`Không kết nối được API ${API_URL}${path}. Chi tiết: ${reason}`, 0, "NETWORK_ERROR", {
+    throw new ApiError(`Không kết nối được API ${apiUrl}${path}. Chi tiết: ${reason}`, 0, "NETWORK_ERROR", {
       raw: networkError
     });
   }
