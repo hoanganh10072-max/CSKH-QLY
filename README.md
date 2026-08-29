@@ -93,7 +93,7 @@ npm run seed:admin -w @cskh/api
 
 ## Triển khai production bằng Cloudflare
 
-Dự án hiện dùng Cloudflare Workers cho cả web và API, không dùng Render.
+Cloudflare Workers là nền tảng triển khai production duy nhất cho cả web và API.
 
 Các service production:
 

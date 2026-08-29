@@ -9,7 +9,7 @@ Dự án đã được chuẩn bị để chạy trên Cloudflare Workers:
 
 Cần có Cloudflare account đã quản lý zone `trungtamgiasuskv.cloud`.
 
-Cần có database PostgreSQL bên ngoài Cloudflare, ví dụ Supabase, Neon hoặc Prisma Postgres. Không dùng lại Render Postgres nếu muốn bỏ Render hoàn toàn.
+Database production là PostgreSQL bên ngoài Cloudflare, được kết nối bằng các secret `DATABASE_URL` và `DIRECT_URL`.
 
 ## 2. Đăng nhập Cloudflare trên máy
 
@@ -69,9 +69,7 @@ npm run cloudflare:deploy
 
 ## 6. DNS
 
-Khi dùng Cloudflare làm DNS chính, cần để domain trỏ qua Cloudflare nameserver. Hai route đã khai báo trong Wrangler:
+Các hostname production đã được gắn trực tiếp với Worker bằng Custom Domain:
 
-- `api.trungtamgiasuskv.cloud/*` -> `mscilabs-api`
-- `trungtamgiasuskv.cloud/*` và `www.trungtamgiasuskv.cloud/*` -> `mscilabs-web`
-
-Sau khi Cloudflare chạy ổn, có thể tắt dịch vụ Render để tránh phát sinh deploy/cấu hình song song.
+- `api.trungtamgiasuskv.cloud` -> `mscilabs-api`
+- `trungtamgiasuskv.cloud` và `www.trungtamgiasuskv.cloud` -> `mscilabs-web`
