@@ -3,7 +3,7 @@
 import clsx from "clsx";
 import { Bell, CheckCircle2, Info, LogOut, Moon, RefreshCcw, Sun, Target, TriangleAlert } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { SessionUser, UserRole, UserStatus } from "@/lib/types";
 import { roleLabels } from "@/lib/types";
 import { apiFetch, describeError } from "@/lib/api";
@@ -269,9 +269,11 @@ export function Header({
     setNotificationError("");
 
     try {
-      const items = user.role === "STAFF"
-        ? await buildStaffNotifications()
-        : await buildAdminNotifications();
+      const items = user.role === "INTERN"
+        ? []
+        : user.role === "STAFF"
+          ? await buildStaffNotifications()
+          : await buildAdminNotifications();
       setNotifications(items);
     } catch (caught) {
       setNotifications([]);
@@ -280,10 +282,6 @@ export function Header({
       setLoadingNotifications(false);
     }
   }, [user.role]);
-
-  useEffect(() => {
-    loadNotifications();
-  }, [loadNotifications, pathname]);
 
   const ThemeIcon = theme === "dark" ? Sun : Moon;
 

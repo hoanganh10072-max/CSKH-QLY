@@ -2,11 +2,11 @@ import { Router } from "express";
 import { CustomerStatus, UserRole, UserStatus } from "@prisma/client";
 import { prisma } from "../../config/prisma.js";
 import { asyncHandler } from "../../lib/async-handler.js";
-import { requireAuth } from "../../middleware/auth.js";
+import { requireAuth, requireRole } from "../../middleware/auth.js";
 
 export const dashboardRouter = Router();
 
-dashboardRouter.use(requireAuth);
+dashboardRouter.use(requireAuth, requireRole(UserRole.ADMIN, UserRole.STAFF));
 
 dashboardRouter.get(
   "/",

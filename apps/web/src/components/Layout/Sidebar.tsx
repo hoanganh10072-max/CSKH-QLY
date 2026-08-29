@@ -3,6 +3,8 @@
 import clsx from "clsx";
 import {
   BarChart3,
+  CalendarDays,
+  ClipboardList,
   Database,
   FileSpreadsheet,
   LayoutDashboard,
@@ -27,11 +29,19 @@ const adminNav = [
   { href: "/dashboard", label: "Bảng điều khiển", icon: LayoutDashboard },
   { href: "/import", label: "Nhập dữ liệu", icon: FileSpreadsheet },
   { href: "/customers", label: "Khách hàng", icon: Database },
-  { href: "/employees", label: "Nhân viên", icon: Users },
+  { href: "/employees/customer-care", label: "Nhân viên", icon: Users },
   { href: "/reports", label: "Báo cáo", icon: BarChart3 }
 ];
 
-export const navigationFor = (user: SessionUser) => (user.role === "ADMIN" ? adminNav : staffNav);
+const internNav = [
+  { href: "/intern/schedule", label: "Đăng kí lịch", icon: CalendarDays },
+  { href: "/intern/work", label: "Công việc", icon: ClipboardList },
+  { href: "/intern/profile", label: "Hồ sơ cá nhân", icon: UserRound }
+];
+
+export const navigationFor = (user: SessionUser) => (
+  user.role === "ADMIN" ? adminNav : user.role === "INTERN" ? internNav : staffNav
+);
 
 export function Sidebar({ user, pathname }: { user: SessionUser; pathname: string }) {
   const nav = navigationFor(user);

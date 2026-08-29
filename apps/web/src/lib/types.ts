@@ -1,4 +1,4 @@
-export type UserRole = "ADMIN" | "STAFF";
+export type UserRole = "ADMIN" | "STAFF" | "INTERN";
 export type UserStatus = "ACTIVE" | "INACTIVE";
 export type CustomerStatus =
   | "NEW"
@@ -110,5 +110,6 @@ export const taskStatuses: Array<{ value: TaskStatus; label: string }> = [
 
 export const roleLabels: Record<UserRole, string> = {
   ADMIN: "Quản trị viên",
-  STAFF: "Nhân viên"
+  STAFF: "Nhân viên CSKH",
+  INTERN: "Nhân viên thực tập"
 };

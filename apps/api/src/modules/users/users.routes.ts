@@ -16,6 +16,8 @@ const usernameSchema = z
   .max(40, "Tên đăng nhập quá dài")
   .regex(/^[A-Za-z0-9._-]+$/, "Tên đăng nhập chỉ gồm chữ, số, dấu chấm, gạch dưới hoặc gạch ngang");
 const emailSchema = z.string().email().transform((value) => value.toLowerCase());
+const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+const optionalDateSchema = z.string().regex(dateRegex, "Ngày không hợp lệ").optional().nullable();
 
 const createUserSchema = z.object({
   name: z.string().trim().min(2),
@@ -36,13 +38,16 @@ const updateUserSchema = z.object({
   employeeCode: z.string().trim().max(50).optional().nullable(),
   department: z.string().trim().max(100).optional().nullable(),
   positionTitle: z.string().trim().max(100).optional().nullable(),
+  dateOfBirth: optionalDateSchema,
   gender: z.string().trim().max(30).optional().nullable(),
   citizenId: z.string().trim().max(30).optional().nullable(),
+  citizenIssuedDate: optionalDateSchema,
   citizenIssuedPlace: z.string().trim().max(150).optional().nullable(),
   currentAddress: z.string().trim().max(300).optional().nullable(),
   hometown: z.string().trim().max(200).optional().nullable(),
   emergencyContactName: z.string().trim().max(120).optional().nullable(),
   emergencyContactPhone: z.string().trim().max(30).optional().nullable(),
+  startDate: optionalDateSchema,
   personalNote: z.string().trim().max(1000).optional().nullable(),
   bankAccountNumber: z.string().trim().max(50).optional().nullable(),
   bankName: z.string().trim().max(100).optional().nullable(),
@@ -60,7 +65,9 @@ const updateAccountSchema = z.object({
 });
 
 const userIdParams = z.object({ id: z.string().uuid() });
-const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+const listUsersQuerySchema = z.object({
+  role: z.nativeEnum(UserRole).optional()
+});
 const weekStartRegex = /^\d{4}-\d{2}-\d{2}$/;
 const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -106,6 +113,10 @@ const scheduleDaysSchema = z.object({
 
 const scheduleQuerySchema = z.object({
   weekStart: z.string().regex(weekStartRegex, "Tuần làm việc không hợp lệ")
+});
+
+const internReportQuerySchema = z.object({
+  workDate: z.string().regex(dateRegex, "Ngày báo cáo không hợp lệ")
 });
 
 const weeklyScheduleSchema = z.object({
@@ -170,6 +181,7 @@ type KpiPeriod = z.infer<typeof kpiPeriodSchema>;
 
 const parseWeekStart = (value: string) => new Date(`${value}T00:00:00.000Z`);
 const parseWorkDate = (value: string) => new Date(`${value}T00:00:00.000Z`);
+const parseOptionalDate = (value?: string | null) => (value ? new Date(`${value}T00:00:00.000Z`) : null);
 const kpiRangeFromPeriod = ({ mode, period }: KpiPeriod) => {
   if (mode === "year") {
     const year = Number(period);
@@ -255,16 +267,46 @@ const serializeDailyWorkKpi = (kpi: DailyWorkKpi) => ({
   updatedAt: kpi.updatedAt
 });
 
+const serializeInternReport = (report: {
+  id: string;
+  userId: string;
+  workDate: Date;
+  workSummary: string;
+  result: string;
+  challenges: string | null;
+  planForNextDay: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}) => ({
+  ...report,
+  workDate: report.workDate.toISOString().slice(0, 10),
+  challenges: report.challenges || "",
+  planForNextDay: report.planForNextDay || ""
+});
+
+const serializeInternCv = (cv: { id: string; fileName: string; mimeType: string; fileSize: number; updatedAt: Date }) => ({
+  id: cv.id,
+  fileName: cv.fileName,
+  mimeType: cv.mimeType,
+  fileSize: cv.fileSize,
+  updatedAt: cv.updatedAt
+});
+
 export const userRouter = Router();
 
 userRouter.use(requireAuth, requireRole(UserRole.ADMIN));
 
 userRouter.get(
   "/",
-  asyncHandler(async (_req, res) => {
+  validate({ query: listUsersQuerySchema }),
+  asyncHandler(async (req, res) => {
+    const role = req.query.role as UserRole | undefined;
     const [users, revenueRows] = await Promise.all([
       prisma.user.findMany({
-        where: { deletedAt: null },
+        where: {
+          deletedAt: null,
+          ...(role ? { role } : {})
+        },
         orderBy: { createdAt: "desc" },
         select: {
           id: true,
@@ -337,7 +379,6 @@ userRouter.post(
     const user = await prisma.user.create({
       data: {
         ...data,
-        role: UserRole.STAFF,
         status: UserStatus.ACTIVE,
         phone: data.phone || null,
         passwordHash: await hashPassword(password)
@@ -386,11 +427,15 @@ userRouter.patch(
   "/:id",
   validate({ params: userIdParams, body: updateUserSchema }),
   asyncHandler(async (req, res) => {
+    const { dateOfBirth, citizenIssuedDate, startDate, phone, ...profile } = req.body;
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: {
-        ...req.body,
-        phone: req.body.phone || null
+        ...profile,
+        ...(phone !== undefined ? { phone: phone || null } : {}),
+        ...(dateOfBirth !== undefined ? { dateOfBirth: parseOptionalDate(dateOfBirth) } : {}),
+        ...(citizenIssuedDate !== undefined ? { citizenIssuedDate: parseOptionalDate(citizenIssuedDate) } : {}),
+        ...(startDate !== undefined ? { startDate: parseOptionalDate(startDate) } : {})
       },
       select: {
         id: true,
@@ -723,6 +768,64 @@ userRouter.get(
     });
 
     res.json({ schedule: schedule ? serializeSchedule(schedule) : null });
+  })
+);
+
+userRouter.get(
+  "/:id/daily-report",
+  validate({ params: userIdParams, query: internReportQuerySchema }),
+  asyncHandler(async (req, res) => {
+    const user = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, role: true, deletedAt: true }
+    });
+
+    if (!user || user.deletedAt || user.role !== UserRole.INTERN) {
+      throw notFound("Intern");
+    }
+
+    const report = await prisma.internDailyReport.findUnique({
+      where: {
+        userId_workDate: {
+          userId: user.id,
+          workDate: parseWorkDate(String(req.query.workDate))
+        }
+      }
+    });
+
+    res.json({ report: report ? serializeInternReport(report) : null });
+  })
+);
+
+userRouter.get(
+  "/:id/cv",
+  validate({ params: userIdParams }),
+  asyncHandler(async (req, res) => {
+    const user = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, role: true, deletedAt: true }
+    });
+    if (!user || user.deletedAt || user.role !== UserRole.INTERN) throw notFound("Intern");
+
+    const cv = await prisma.internCv.findUnique({
+      where: { userId: user.id },
+      select: { id: true, fileName: true, mimeType: true, fileSize: true, updatedAt: true }
+    });
+    res.json({ cv: cv ? serializeInternCv(cv) : null });
+  })
+);
+
+userRouter.get(
+  "/:id/cv/download",
+  validate({ params: userIdParams }),
+  asyncHandler(async (req, res) => {
+    const cv = await prisma.internCv.findUnique({ where: { userId: req.params.id } });
+    if (!cv) throw new HttpError(404, "Chưa có CV", "CV_NOT_FOUND");
+
+    res.setHeader("content-type", cv.mimeType);
+    res.setHeader("content-length", String(cv.fileSize));
+    res.setHeader("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(cv.fileName)}`);
+    res.send(Buffer.from(cv.content));
   })
 );
 

@@ -1,7 +1,8 @@
 import { Router } from "express";
+import multer from "multer";
 import { z } from "zod";
-import { UserStatus } from "@prisma/client";
-import type { WeeklyWorkSchedule } from "@prisma/client";
+import { UserRole, UserStatus } from "@prisma/client";
+import type { InternDailyReport, WeeklyWorkSchedule } from "@prisma/client";
 import { prisma } from "../../config/prisma.js";
 import { asyncHandler } from "../../lib/async-handler.js";
 import { HttpError } from "../../lib/http-error.js";
@@ -106,6 +107,36 @@ const weeklyScheduleSchema = z.object({
   days: scheduleDaysSchema
 });
 
+const reportQuerySchema = z.object({
+  workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Ngày báo cáo không hợp lệ")
+});
+
+const reportBodySchema = reportQuerySchema.extend({
+  workSummary: z.string().trim().min(1, "Cần nhập công việc đã thực hiện").max(5000),
+  result: z.string().trim().min(1, "Cần nhập kết quả công việc").max(5000),
+  challenges: z.string().trim().max(3000).optional().nullable(),
+  planForNextDay: z.string().trim().max(3000).optional().nullable()
+});
+
+const cvMimeTypes = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+]);
+const cvExtensions = new Set(["pdf", "doc", "docx"]);
+const cvUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, callback) => {
+    const extension = file.originalname.split(".").pop()?.toLowerCase() || "";
+    if (!cvMimeTypes.has(file.mimetype) || !cvExtensions.has(extension)) {
+      callback(new HttpError(422, "CV chỉ hỗ trợ tệp PDF, DOC hoặc DOCX", "INVALID_CV_FILE"));
+      return;
+    }
+    callback(null, true);
+  }
+});
+
 type WeeklyScheduleBody = z.infer<typeof weeklyScheduleSchema>;
 
 const loginFilters = (value: string) => {
@@ -125,6 +156,7 @@ const loginFilters = (value: string) => {
 
 const parseWeekStart = (value: string) => new Date(`${value}T00:00:00.000Z`);
 const parseDateInput = (value?: string | null) => (value ? new Date(`${value}T00:00:00.000Z`) : null);
+const parseWorkDate = (value: string) => new Date(`${value}T00:00:00.000Z`);
 
 const scheduleFieldsFromDays = (days: WeeklyScheduleBody["days"]) => ({
   mondayStart: days.monday.working ? days.monday.start : null,
@@ -164,6 +196,31 @@ const serializeSchedule = (schedule: WeeklyWorkSchedule) => ({
   },
   updatedAt: schedule.updatedAt
 });
+
+const serializeInternReport = (report: InternDailyReport) => ({
+  id: report.id,
+  workDate: report.workDate.toISOString().slice(0, 10),
+  workSummary: report.workSummary,
+  result: report.result,
+  challenges: report.challenges || "",
+  planForNextDay: report.planForNextDay || "",
+  createdAt: report.createdAt,
+  updatedAt: report.updatedAt
+});
+
+const serializeCv = (cv: { id: string; fileName: string; mimeType: string; fileSize: number; updatedAt: Date }) => ({
+  id: cv.id,
+  fileName: cv.fileName,
+  mimeType: cv.mimeType,
+  fileSize: cv.fileSize,
+  updatedAt: cv.updatedAt
+});
+
+const ensureIntern = (role: UserRole) => {
+  if (role !== UserRole.INTERN) {
+    throw new HttpError(403, "Chỉ nhân viên thực tập được sử dụng chức năng này", "INTERN_ONLY");
+  }
+};
 
 export const authRouter = Router();
 
@@ -335,5 +392,130 @@ authRouter.put(
     });
 
     res.json({ schedule: serializeSchedule(schedule) });
+  })
+);
+
+authRouter.get(
+  "/me/daily-report",
+  requireAuth,
+  validate({ query: reportQuerySchema }),
+  asyncHandler(async (req, res) => {
+    if (req.user!.role !== UserRole.INTERN) {
+      throw new HttpError(403, "Chỉ nhân viên thực tập được sử dụng báo cáo ngày", "INTERN_ONLY_REPORT");
+    }
+
+    const report = await prisma.internDailyReport.findUnique({
+      where: {
+        userId_workDate: {
+          userId: req.user!.id,
+          workDate: parseWorkDate(String(req.query.workDate))
+        }
+      }
+    });
+
+    res.json({ report: report ? serializeInternReport(report) : null });
+  })
+);
+
+authRouter.put(
+  "/me/daily-report",
+  requireAuth,
+  validate({ body: reportBodySchema }),
+  asyncHandler(async (req, res) => {
+    if (req.user!.role !== UserRole.INTERN) {
+      throw new HttpError(403, "Chỉ nhân viên thực tập được sử dụng báo cáo ngày", "INTERN_ONLY_REPORT");
+    }
+
+    const workDate = parseWorkDate(req.body.workDate);
+    const report = await prisma.internDailyReport.upsert({
+      where: { userId_workDate: { userId: req.user!.id, workDate } },
+      update: {
+        workSummary: req.body.workSummary,
+        result: req.body.result,
+        challenges: req.body.challenges || null,
+        planForNextDay: req.body.planForNextDay || null
+      },
+      create: {
+        userId: req.user!.id,
+        workDate,
+        workSummary: req.body.workSummary,
+        result: req.body.result,
+        challenges: req.body.challenges || null,
+        planForNextDay: req.body.planForNextDay || null
+      }
+    });
+
+    res.json({ report: serializeInternReport(report) });
+  })
+);
+
+authRouter.get(
+  "/me/cv",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    ensureIntern(req.user!.role);
+    const cv = await prisma.internCv.findUnique({
+      where: { userId: req.user!.id },
+      select: { id: true, fileName: true, mimeType: true, fileSize: true, updatedAt: true }
+    });
+    res.json({ cv: cv ? serializeCv(cv) : null });
+  })
+);
+
+authRouter.put(
+  "/me/cv",
+  requireAuth,
+  cvUpload.single("cv"),
+  asyncHandler(async (req, res) => {
+    ensureIntern(req.user!.role);
+    if (!req.file) {
+      throw new HttpError(422, "Cần chọn tệp CV", "CV_FILE_REQUIRED");
+    }
+
+    const fileName = req.file.originalname.trim().replace(/[\r\n"]/g, "").slice(0, 180) || "CV.pdf";
+    const cv = await prisma.internCv.upsert({
+      where: { userId: req.user!.id },
+      update: {
+        fileName,
+        mimeType: req.file.mimetype,
+        fileSize: req.file.size,
+        content: req.file.buffer
+      },
+      create: {
+        userId: req.user!.id,
+        fileName,
+        mimeType: req.file.mimetype,
+        fileSize: req.file.size,
+        content: req.file.buffer
+      },
+      select: { id: true, fileName: true, mimeType: true, fileSize: true, updatedAt: true }
+    });
+
+    res.json({ cv: serializeCv(cv) });
+  })
+);
+
+authRouter.get(
+  "/me/cv/download",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    ensureIntern(req.user!.role);
+    const cv = await prisma.internCv.findUnique({ where: { userId: req.user!.id } });
+    if (!cv) throw new HttpError(404, "Chưa có CV", "CV_NOT_FOUND");
+
+    res.setHeader("content-type", cv.mimeType);
+    res.setHeader("content-length", String(cv.fileSize));
+    res.setHeader("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(cv.fileName)}`);
+    res.send(Buffer.from(cv.content));
+  })
+);
+
+authRouter.delete(
+  "/me/cv",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    ensureIntern(req.user!.role);
+    await prisma.internCv.deleteMany({ where: { userId: req.user!.id } });
+    res.json({ deleted: true });
   })
 );

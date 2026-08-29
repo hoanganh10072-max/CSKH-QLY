@@ -49,7 +49,7 @@ const importLinkPreviewBodySchema = z.object({
 
 export const customerRouter = Router();
 
-customerRouter.use(requireAuth);
+customerRouter.use(requireAuth, requireRole(UserRole.ADMIN, UserRole.STAFF));
 
 const MAX_LINK_IMPORT_BYTES = 20 * 1024 * 1024;
 

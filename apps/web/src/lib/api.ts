@@ -3,6 +3,7 @@
 import type { SessionUser } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+export const getApiBaseUrl = () => API_URL;
 const PRODUCTION_HOSTS = new Set(["trungtamgiasuskv.cloud", "www.trungtamgiasuskv.cloud"]);
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));

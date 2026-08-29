@@ -54,7 +54,7 @@ export default function LoginPage() {
         json: { account, password }
       });
       setSession(response.token, response.user);
-      router.replace("/dashboard");
+      router.replace(response.user.role === "INTERN" ? "/intern/schedule" : "/dashboard");
     } catch (caught) {
       setError(describeError(caught, "Đăng nhập thất bại"));
     } finally {

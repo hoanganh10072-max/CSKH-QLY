@@ -29,10 +29,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    if (stored.role === "INTERN" && !pathname.startsWith("/intern")) {
+      router.replace("/intern/schedule");
+      return;
+    }
+
+    if (stored.role !== "INTERN" && pathname.startsWith("/intern")) {
+      router.replace("/dashboard");
+      return;
+    }
+
     setTheme(storedTheme === "light" ? "light" : "dark");
     setUser(stored);
     setReady(true);
-  }, [router]);
+  }, [pathname, router]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
